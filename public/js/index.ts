@@ -62,16 +62,18 @@ let gameEvent: GameEvent = {
 		forward: false,
 	},
 };
-gameEvent.mapPosition = getMousePositionOnMap();
+gameEvent.mapPosition = getPositionOnMap(gameEvent.canvasPosition);
 
 class ButtonState {
 	pressed: boolean;
 	pressed_time: number;
 	pressed_position: Vector2;
+	pressed_position_map: Vector2;
 	constructor() {
 		this.pressed = false;
 		this.pressed_time = 0;
 		this.pressed_position = { x: 0, y: 0 };
+		this.pressed_position_map = { x: 0, y: 0 };
 	}
 }
 let clickState: {
@@ -104,11 +106,11 @@ function drawStroked(text: string, x: number, y: number) {
 		ctx.fillText(line, x, y + i * lineHeight);
 	}
 }
-function getMousePositionOnMap() {
+function getPositionOnMap(point: Vector2) {
 	let min = Math.min(screenToMap.width, screenToMap.height);
 	return {
-		x: view.x / min + gameEvent.canvasPosition.x / (min * view.zoom),
-		y: view.y / min + gameEvent.canvasPosition.y / (min * view.zoom),
+		x: view.x / min + point.x / (min * view.zoom),
+		y: view.y / min + point.y / (min * view.zoom),
 	};
 }
 function draw(elapsed: number) {
@@ -314,7 +316,7 @@ function isMouseButtonPressed(buttons: number, buttonName: string) {
 	return Boolean(buttons & (1 << buttonNames.indexOf(buttonName)));
 }
 function hoveringCheck(mapOnly: boolean = false) {
-	gameEvent.mapPosition = getMousePositionOnMap();
+	gameEvent.mapPosition = getPositionOnMap(gameEvent.canvasPosition);
 	InteractiveElements.forEach((element) => {
 		let previousValue = element.hovering;
 		if (element.isMapElement)
@@ -328,14 +330,16 @@ function hoveringCheck(mapOnly: boolean = false) {
 		}
 	});
 }
-function createEvent(type: string) {
+function createEvent(type: string, options: Partial<GameEvent> = {}) {
 	let event: GameEvent = {
 		...gameEvent,
 		type,
+		...options,
 	};
 	return event;
 }
 function mouseHandler(event: MouseEvent) {
+	const now = performance.now();
 	event.preventDefault();
 	gameEvent.canvasPosition.x = event.clientX * pixelDensity;
 	gameEvent.canvasPosition.y = event.clientY * pixelDensity;
@@ -345,28 +349,70 @@ function mouseHandler(event: MouseEvent) {
 			event.buttons,
 			buttonName
 		);
-		if (gameEvent.mouseButtons[buttonName]) {
+		const wasPressed = clickState[buttonName].pressed;
+		const isPressed = gameEvent.mouseButtons[buttonName];
+		if (isPressed && !wasPressed) {
 			clickState[buttonName].pressed = true;
 			clickState[buttonName].pressed_time = performance.now();
 			clickState[buttonName].pressed_position = gameEvent.canvasPosition;
-		} else if (clickState[buttonName].pressed) {
+			clickState[buttonName].pressed_position_map = gameEvent.mapPosition;
+		} else if (wasPressed && !isPressed) {
 			// TODO: ONLY DO THIS FOR LEFT CLICK???
 			clickState[buttonName].pressed = false;
-			let pressedDuration =
-				performance.now() - clickState[buttonName].pressed_time;
-			let pressedDistanceMoved = getDistance2D(
-				clickState[buttonName].pressed_position,
+			const clickStartPosition = clickState[buttonName].pressed_position;
+			const clickStartPositionMap = clickState[buttonName].pressed_position_map;
+			const clickStartTime = clickState[buttonName].pressed_time;
+			const pressedDuration = now - clickStartTime;
+			const pressedDistanceMoved = getDistance2D(
+				clickStartPosition,
 				gameEvent.canvasPosition
 			);
 			if (
 				pressedDuration < clickTimeThreshold &&
 				pressedDistanceMoved < clickDistanceThreshold
 			) {
+				console.log("click");
 				// Click
 				InteractiveElements.forEach((element) => {
-					console.log(element.fillStyle, element.hovering, element.listeners);
-					if (element.hovering) element.dispatchEvent(createEvent("click"));
+					if (element.hovering)
+						element.dispatchEvent(
+							createEvent("click", {
+								click: {
+									startPosition: clickStartPosition,
+									startPositionOnMap: clickStartPositionMap,
+									endPosition: gameEvent.canvasPosition,
+									endPositionOnMap: gameEvent.mapPosition,
+									startTime: clickStartTime,
+									endTime: now,
+									duration: pressedDuration,
+									distanceMoved: pressedDistanceMoved,
+									button: buttonName,
+								},
+							})
+						);
 				});
+			} else {
+				// Drag
+				for (let element of InteractiveElements) {
+					if (isInBounds(clickStartPositionMap, element)) {
+						element.dispatchEvent(
+							createEvent("drag", {
+								click: {
+									startPosition: clickStartPosition,
+									startPositionOnMap: clickStartPositionMap,
+									endPosition: gameEvent.canvasPosition,
+									endPositionOnMap: gameEvent.mapPosition,
+									startTime: clickStartTime,
+									endTime: now,
+									duration: pressedDuration,
+									distanceMoved: pressedDistanceMoved,
+									button: buttonName,
+								},
+							})
+						);
+						break; // Only drag one!!
+					}
+				}
 			}
 		}
 	}

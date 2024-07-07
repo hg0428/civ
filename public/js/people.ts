@@ -155,6 +155,9 @@ class People implements Drawable {
 		this.element.addEventListener("click", (event: GameEvent) =>
 			this.click(event)
 		);
+		this.element.addEventListener("drag", (event: GameEvent) =>
+			this.drag(event)
+		);
 	}
 	addPerson(person: Person) {
 		this.total++;
@@ -194,14 +197,17 @@ class People implements Drawable {
 		this.rng = PRNG(this.seed);
 		this.index = 0;
 	}
+	setGradient(ctx: CanvasRenderingContext2D) {
+		this.gradient = createLinearGradientFromColors(
+			this.nationality.colors,
+			ctx,
+			this.element
+		);
+		this.element.fillStyle = this.gradient;
+	}
 	draw(ctx: CanvasRenderingContext2D, elapsed: number, gameEvent: GameEvent) {
 		if (!this.gradient) {
-			this.gradient = createLinearGradientFromColors(
-				this.nationality.colors,
-				ctx,
-				this.element
-			);
-			this.element.fillStyle = this.gradient;
+			this.setGradient(ctx);
 		}
 		this.element.draw(ctx, elapsed, gameEvent);
 	}
@@ -300,6 +306,11 @@ class People implements Drawable {
 		x.addEventListener("click", () => this.removeMenu());
 		activeMenus.push(this.menu);
 		return;
+	}
+	drag(event: GameEvent) {
+		this.location = event.click.endPositionOnMap;
+		this.element.position = this.location;
+		this.setGradient(event.canvasRenderingContext2D);
 	}
 	removeMenu() {
 		this.menu.remove();

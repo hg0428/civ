@@ -77,6 +77,17 @@ export interface GameEvent {
 		back: boolean;
 		forward: boolean;
 	};
+	click?: {
+		startPosition: Vector2;
+		startPositionOnMap: Vector2;
+		endPosition: Vector2;
+		endPositionOnMap: Vector2;
+		startTime: number;
+		endTime: number;
+		button: string;
+		duration: number;
+		distanceMoved: number;
+	};
 }
 
 export function hoverEffect<shape extends Shape>(
