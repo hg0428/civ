@@ -1,0 +1,27 @@
+body,
+html {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	cursor: none;
+	overflow: hidden;
+	overscroll-behavior-x: none;
+	overscroll-behavior-y: none;
+	overscroll-behavior: none;
+	overscroll-behavior-block: none;
+	overscroll-behavior-inline: none;
+	-ms-touch-action: none;
+	touch-action: none;
+}
+#canvas {
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: -1;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	-ms-touch-action: none;
+	touch-action: none;
+}
