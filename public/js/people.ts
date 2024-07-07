@@ -144,9 +144,6 @@ class People implements Drawable {
 		this.element = new InteractiveElement({
 			position: this.location,
 			shape: new Circle(5),
-			fillStyle: this.nationality.colors[0],
-			strokeStyle: this.nationality.colors[1],
-			strokeWidth: 2,
 			stroke: false,
 			isMapElement: true,
 		});
@@ -308,7 +305,10 @@ class People implements Drawable {
 		return;
 	}
 	drag(event: GameEvent) {
-		this.location = event.click.endPositionOnMap;
+		this.location = {
+			x: Math.min(Math.max(event.click.endPositionOnMap.x, 0), event.mapWidth),
+			y: Math.min(Math.max(event.click.endPositionOnMap.y, 0), event.mapHeight),
+		};
 		this.element.position = this.location;
 		this.setGradient(event.canvasRenderingContext2D);
 	}
@@ -350,16 +350,21 @@ const Brazil = new Nation("Brazil", [
 ]);
 const India = new Nation("India", ["#FF9933", "#128807", "#FFFFFF"]);
 
+const China = new Nation("China", ["#DC002E", "#FFED00"]);
+
 // Define physical and mental values for each nation
-const averagePhysicalUSA = new Physical(50, 55, 60, 50, 55); // Adjusted values
+const averagePhysicalUSA = new Physical(52, 58, 60, 55, 50);
 
-const averageMentalUSA = new Mental(80, 70, 55); // Adjusted values
+const averageMentalUSA = new Mental(60, 65, 70);
 
-const averagePhysicalBrazil = new Physical(47, 58, 65, 50, 60); // Adjusted values
-const averageMentalBrazil = new Mental(80, 65, 60); // Adjusted values
+const averagePhysicalBrazil = new Physical(47, 55, 55, 55, 60);
+const averageMentalBrazil = new Mental(50, 50, 65);
 
-const averagePhysicalIndia = new Physical(42, 61, 62, 45, 55); // Adjusted values
-const averageMentalIndia = new Mental(75, 70, 65); // Adjusted values
+const averagePhysicalIndia = new Physical(45, 48, 45, 50, 55);
+const averageMentalIndia = new Mental(55, 50, 60);
+
+const averagePhysicalChina = new Physical(60, 52, 51, 50, 50);
+const averageMentalChina = new Mental(57, 65, 50);
 
 // Instantiate people groups for each nation
 const groupUSA = new People(USA, 100, averagePhysicalUSA, averageMentalUSA, {
@@ -380,8 +385,15 @@ const groupIndia = new People(
 	averageMentalIndia,
 	{ x: 321, y: 730 }
 );
+const groupChina = new People(
+	China,
+	125,
+	averagePhysicalChina,
+	averageMentalChina,
+	{ x: 630, y: 570 }
+);
 
-const nations: Nation[] = [USA, Brazil, India];
+const nations: Nation[] = [USA, Brazil, India, China];
 
 // let levels = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 // let rng = PRNG();
