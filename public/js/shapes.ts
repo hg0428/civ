@@ -88,6 +88,7 @@ export interface Drawable {
 		gameEvent: GameEvent
 	): void;
 }
+export type canvasStyles = string | CanvasGradient | CanvasPattern;
 export class Thing<shape extends Shape> implements Drawable {
 	/**
 	 * The center position of the thing
@@ -100,11 +101,11 @@ export class Thing<shape extends Shape> implements Drawable {
 	/**
 	 * The fill color of the thing, if applicable
 	 */
-	fillStyle?: string;
+	fillStyle?: canvasStyles;
 	/**
 	 * The stroke color of the thing, if applicable
 	 */
-	strokeStyle?: string;
+	strokeStyle?: canvasStyles;
 	/**
 	 * The stroke width of the thing, if applicable
 	 */
@@ -271,6 +272,26 @@ export function draw<shape extends Shape>(
 		ctx.fill(thing.fillRule);
 	}
 	if (thing.stroke) ctx.stroke();
+}
+export function createLinearGradientFromColors(
+	colors: string[],
+	ctx: CanvasRenderingContext2D,
+	thing: Thing<Circle>
+) {
+	const gradient = ctx.createLinearGradient(
+		thing.position.x - thing.shape.radius,
+		thing.position.y - thing.shape.radius,
+		thing.position.x + thing.shape.radius,
+		thing.position.y + thing.shape.radius
+	);
+	let lowest = 0.1;
+	let highest = 0.9;
+	// Add color stops from the provided colors array
+	colors.forEach((color, index) => {
+		gradient.addColorStop((0.8 * index) / (colors.length - 1) + 0.1, color);
+	});
+
+	return gradient;
 }
 export function getDistance2D(a: Vector2, b: Vector2) {
 	return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);

@@ -1,4 +1,4 @@
-import { Physical, Mental, Person, People, us } from "./people.ts";
+import { Physical, Mental, Person, People, nations } from "./people.ts";
 import { Rectangle, Vector2, getDistance2D, isInBounds } from "./shapes.ts";
 import {
 	generateHeightMap,
@@ -225,7 +225,7 @@ function runGame(elapsed: number) {
 
 		// Draw Game
 		ctx.drawImage(imageBitmap, 0, 0, mapWidth, mapHeight);
-		us.groups.map((group) => group.draw(ctx, elapsed, gameEvent));
+		nations.forEach((nation) => nation.draw(ctx, elapsed, gameEvent));
 		// mapLayer.map((drawable) => drawable.draw(ctx, elapsed));
 	} finally {
 		// Restore

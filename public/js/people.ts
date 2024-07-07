@@ -1,5 +1,13 @@
 import { PRNG, RNG } from "./utils.ts";
-import { Circle, Vector2, Thing, Rectangle, X, Drawable } from "./shapes.ts";
+import {
+	Circle,
+	Vector2,
+	Thing,
+	Rectangle,
+	X,
+	Drawable,
+	createLinearGradientFromColors,
+} from "./shapes.ts";
 import { GameEvent, hoverEffect, InteractiveElement } from "./interactive.ts";
 import { activeMenus, Menu } from "./menu.ts";
 // EVERYTHING IS ON A 0-100 SCALE!!
@@ -113,6 +121,7 @@ class People implements Drawable {
 	location: Vector2;
 	element: InteractiveElement<Circle>;
 	menu: Menu | null = null;
+	gradient: CanvasGradient | null = null;
 
 	constructor(
 		nationality: Nation,
@@ -131,12 +140,14 @@ class People implements Drawable {
 		this.index = 0;
 		this.location = location;
 		this.nationality.groups.push(this);
+		this.gradient = null;
 		this.element = new InteractiveElement({
 			position: this.location,
 			shape: new Circle(5),
 			fillStyle: this.nationality.colors[0],
 			strokeStyle: this.nationality.colors[1],
 			strokeWidth: 2,
+			stroke: false,
 			isMapElement: true,
 		});
 		hoverEffect(this.element);
@@ -184,14 +195,24 @@ class People implements Drawable {
 		this.index = 0;
 	}
 	draw(ctx: CanvasRenderingContext2D, elapsed: number, gameEvent: GameEvent) {
+		if (!this.gradient) {
+			this.gradient = createLinearGradientFromColors(
+				this.nationality.colors,
+				ctx,
+				this.element
+			);
+			this.element.fillStyle = this.gradient;
+		}
 		this.element.draw(ctx, elapsed, gameEvent);
 	}
 	click(event: GameEvent) {
 		let ctx = event.canvasRenderingContext2D;
 		if (this.menu) return;
 
-		let menuMargin = 100;
-		if (event.canvasHeight < 500) menuMargin = 0;
+		let menuMargin = 150;
+		if (event.canvasHeight < 1000) menuMargin = 0;
+		else if (event.canvasHeight < 1500) menuMargin = 50;
+		else if (event.canvasHeight < 2000) menuMargin = 100;
 
 		let box: Thing<Rectangle> = new Thing({
 			position: { x: event.canvasWidth / 2, y: event.canvasHeight / 2 },
@@ -200,8 +221,8 @@ class People implements Drawable {
 				event.canvasHeight - menuMargin
 			),
 			fillStyle: "antiquewhite",
-			strokeStyle: "blue",
-			strokeWidth: 4,
+			strokeStyle: "antiquewhite",
+			strokeWidth: 10,
 			lineJoin: "round",
 		});
 		let x = new InteractiveElement({
@@ -246,7 +267,7 @@ class People implements Drawable {
 		let mentalProperties = this.mental.properties.map(
 			(property) => this.mental[property]
 		);
-
+		let people = this;
 		let menu = new Menu([
 			box,
 			x,
@@ -260,7 +281,7 @@ class People implements Drawable {
 						ctx,
 						menuMargin,
 						menuMargin,
-						"Physical:",
+						"Average Physical:",
 						people.physical.properties,
 						physicalProperties
 					);
@@ -268,7 +289,7 @@ class People implements Drawable {
 						ctx,
 						menuMargin,
 						menuMargin + endOffset,
-						"Mental:",
+						"Average Mental:",
 						people.mental.properties,
 						mentalProperties
 					);
@@ -290,7 +311,7 @@ class People implements Drawable {
 		this.nationality.groups.splice(this.nationality.groups.indexOf(this), 1);
 	}
 }
-class Nation {
+class Nation implements Drawable {
 	name: string;
 	colors: string[];
 	groups: People[];
@@ -299,16 +320,57 @@ class Nation {
 		this.colors = colors;
 		this.groups = [];
 	}
+	draw(
+		ctx: CanvasRenderingContext2D,
+		elapsed: number,
+		gameEvent: GameEvent
+	): void {
+		this.groups.forEach((group) => group.draw(ctx, elapsed, gameEvent));
+	}
 }
 
-const us = new Nation("United States", ["red", "white", "blue"]);
-const people = new People(
-	us,
-	100,
-	new Physical(50, 50, 50, 50, 50, 50),
-	new Mental(50, 50, 50),
-	{ x: 100, y: 100 }
+// Define nations and their colors
+const USA = new Nation("USA", ["#CD0039", "#FFFFFF", "#003B79"]);
+const Brazil = new Nation("Brazil", [
+	"#009B3A",
+	"#FFCC29",
+	"#002776",
+	"#FFFFFF",
+]);
+const India = new Nation("India", ["#FF9933", "#128807", "#FFFFFF"]);
+
+// Define physical and mental values for each nation
+const averagePhysicalUSA = new Physical(50, 55, 60, 50, 55); // Adjusted values
+
+const averageMentalUSA = new Mental(80, 70, 55); // Adjusted values
+
+const averagePhysicalBrazil = new Physical(47, 58, 65, 50, 60); // Adjusted values
+const averageMentalBrazil = new Mental(80, 65, 60); // Adjusted values
+
+const averagePhysicalIndia = new Physical(42, 61, 62, 45, 55); // Adjusted values
+const averageMentalIndia = new Mental(75, 70, 65); // Adjusted values
+
+// Instantiate people groups for each nation
+const groupUSA = new People(USA, 100, averagePhysicalUSA, averageMentalUSA, {
+	x: 100,
+	y: 100,
+});
+const groupBrazil = new People(
+	Brazil,
+	80,
+	averagePhysicalBrazil,
+	averageMentalBrazil,
+	{ x: 930, y: 192 }
 );
+const groupIndia = new People(
+	India,
+	120,
+	averagePhysicalIndia,
+	averageMentalIndia,
+	{ x: 321, y: 730 }
+);
+
+const nations: Nation[] = [USA, Brazil, India];
 
 // let levels = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 // let rng = PRNG();
@@ -329,4 +391,4 @@ const people = new People(
 // console.log([...people.getPeople(5)]);
 // NAMES: https://github.com/aakashkag/People-Name-List/blob/master/US-People-Names/us_people_names.csv
 
-export { Physical, Mental, Person, People, us };
+export { Physical, Mental, Person, People, Nation, nations };
