@@ -5,43 +5,49 @@ import { substances, Substance } from "./substance.ts";
 import { createNoise2D } from "simplex-noise";
 
 // Use AI map generation?
-
-function generateCylindricalHeightmap(
+interface GenerationOptions {
+	width: number;
+	height: number;
+	OCTAVES: number;
+	LACUNARITY: number;
+	PERSISTENCE: number;
+	max: number;
+}
+function generatePerlinNoise({
 	width = 157,
 	height = 100,
-	noiseScale = 100,
-	octaves = 6,
-	scale = 100
-) {
+	OCTAVES = 10,
+	LACUNARITY = 2,
+	PERSISTENCE = 0.5,
+	max = 1,
+}) {
 	const noise2D = createNoise2D();
-	// Create the empty heightmap array
-	const terrain = new Array(height);
-	for (let y = 0; y < height; y++) {
-		terrain[y] = new Array(width);
-	}
+	const result: number[][] = [];
+	let scale = (width + height) / 2;
 
-	// Fill the terrain array with noise values
+	// Generate noise values with extra width for wrapping
 	for (let y = 0; y < height; y++) {
+		result[y] = [];
 		for (let x = 0; x < width; x++) {
-			// Generate noise based on x, y, noise scale, and octaves
-			let noiseSum = 0;
-			let frequency = 1.0;
-			let amplitude = 1.0;
-			for (let i = 0; i < octaves; i++) {
-				noiseSum +=
-					noise2D((x * frequency) / noiseScale, (y * frequency) / noiseScale) *
-					amplitude;
-				frequency *= 2;
-				amplitude *= 0.5;
+			let amplitude = 1;
+			let frequency = 1;
+			let noiseValue = 0;
+
+			for (let i = 0; i < OCTAVES; i++) {
+				const nx = (x / scale) * frequency;
+				const ny = (y / scale) * frequency;
+				noiseValue += noise2D(nx, ny) * amplitude;
+
+				amplitude *= PERSISTENCE;
+				frequency *= LACUNARITY;
 			}
 
-			// Normalize noise to 0.0 - 1.0 range
-			// console.log(noiseSum);
-			terrain[y][x] = ((noiseSum + 1) / 2) * scale; // Offset for 0-1 range
+			// Normalize to the range [0, 1]
+			result[y][x] = ((noiseValue + 1) / 2) * max;
 		}
 	}
-	// console.log(terrain);
-	return { data: terrain, min: 0, max: scale };
+
+	return { data: result, min: 0, max };
 }
 export interface Map {
 	min: number;
@@ -78,31 +84,29 @@ class World {
 	}
 }
 
-function generateHeightMap(
-	width: number,
-	height: number,
-	depth = 1000,
-	rough = 1
-) {
+function generateHeightMap(width: number, height: number) {
 	// const data = ds({
 	// 	width,
 	// 	height,
 	// 	depth,
 	// 	rough,
 	// });
-	const data = generateCylindricalHeightmap(width, height, 100);
+	const data = generatePerlinNoise({ width, height, max: 100 });
 
 	return data;
 }
 function renderHeightMap(heightMap: Map, width: number, height: number) {
 	let { min, max, data } = heightMap;
-	// console.log(min, max, data);
 	const range = max - min;
 	const colorData = [];
 	for (let i = 0; i < height; i++) {
 		for (let j = 0; j < width; j++) {
 			const level = (data[i][j] - min) / range;
-			colorData.push(level * 255, level * 255, level * 255, 255);
+			if (level < 0.7) {
+				colorData.push(128 * level, 128 * level, 128 + 128 * level, 255);
+			} else {
+				colorData.push(level * 255, level * 255, level * 255, 255);
+			}
 		}
 	}
 
@@ -116,11 +120,11 @@ function renderHeightMap(heightMap: Map, width: number, height: number) {
 function generateMaterialMap(width: number, height: number) {
 	let map = {};
 	for (let substance of substances) {
-		map[substance.name] = generateHeightMap(
+		map[substance.name] = generatePerlinNoise({
 			width,
 			height,
-			100 * substance.relative_abundance
-		);
+			max: 100 * substance.relative_abundance,
+		});
 	}
 
 	return map;

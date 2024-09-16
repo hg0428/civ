@@ -30,7 +30,7 @@ let view = {
 let KeysPressed = new Set();
 let previousTimestamp = 0;
 let elapsed = 0;
-let mapResolution = new Rectangle(157, 100);
+let mapResolution = new Rectangle(157 * 5, 100 * 5);
 let coordinateToMapRatio = 10;
 const mapWidth = mapResolution.width * coordinateToMapRatio;
 const mapHeight = mapResolution.height * coordinateToMapRatio;
@@ -39,8 +39,8 @@ let screenToMap = {
 	height: 1,
 };
 let clampedView = false; // Not working right TODO
-let minZoom = 1;
-let maxZoom = 100;
+let minZoom = 0.75;
+let maxZoom = 200;
 const buttonNames = ["left", "right", "middle", "back", "forward"];
 
 let gameEvent: GameEvent = {
@@ -440,12 +440,12 @@ window.addEventListener(
 		let deltaZ = event.deltaZ; // 3d mouse
 		if (event.ctrlKey === true) {
 			event.preventDefault();
-			handleZoom(deltaY / 100);
+			handleZoom(-deltaY / 50);
 		} else {
 			// Panning
 			view.x += deltaX / view.zoom;
 			view.y += deltaY / view.zoom;
-			handleZoom(deltaZ / 100);
+			handleZoom(deltaZ / 50);
 			hoveringCheck(true); // Only if panning, because otherwise the mouse will still be hovering the same thing.
 		}
 	},
