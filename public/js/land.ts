@@ -102,7 +102,7 @@ function renderHeightMap(heightMap: Map, width: number, height: number) {
 	for (let i = 0; i < height; i++) {
 		for (let j = 0; j < width; j++) {
 			const level = (data[i][j] - min) / range;
-			if (level < 0.7) {
+			if (level < 0.69) {
 				colorData.push(128 * level, 128 * level, 128 + 128 * level, 255);
 			} else {
 				colorData.push(level * 255, level * 255, level * 255, 255);
@@ -162,9 +162,9 @@ function generateHeatMap(
 function generateMap(width: number, height: number) {
 	let heightMap = generateHeightMap(width, height);
 	// console.log("Generated height map", heightMap);
-	let materialMap = generateMaterialMap(width, height);
+	let materialMap = {}; //generateMaterialMap(width, height);
 	// console.log("Generated material map", materialMap);
-	let heatMap = generateHeatMap(width, height, heightMap, materialMap);
+	let heatMap = { min: 0, max: 1, data: [] }; //generateHeatMap(width, height, heightMap, materialMap);
 	// console.log("Generated heat map", heatMap);
 
 	return new World(width, height, materialMap, heightMap, heatMap);
