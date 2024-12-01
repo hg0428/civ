@@ -22,7 +22,7 @@ let height = window.innerHeight * pixelDensity;
 let view = {
 	x: 0,
 	y: 0,
-	zoom: 5,
+	zoom: 1,
 	move_speed: 1,
 	zoom_speed: 1 / 1000,
 	realZoom: 1,
@@ -30,7 +30,9 @@ let view = {
 let KeysPressed = new Set();
 let previousTimestamp = 0;
 let elapsed = 0;
-let mapResolution = new Rectangle(157 * 10, 100 * 10);
+let scale = 32;
+// 157x100
+let mapResolution = new Rectangle(157, 100);
 let coordinateToMapRatio = 10;
 const mapWidth = mapResolution.width * coordinateToMapRatio;
 const mapHeight = mapResolution.height * coordinateToMapRatio;
@@ -39,9 +41,11 @@ let screenToMap = {
 	height: 1,
 };
 let clampedView = false; // Not working right TODO
-let minZoom = 0.75;
+let minZoom = 1;
 let maxZoom = 200;
 const buttonNames = ["left", "right", "middle", "back", "forward"];
+
+// https://www.reddit.com/r/proceduralgeneration/comments/37azql/comment/crm6z37/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 
 let gameEvent: GameEvent = {
 	canvasPosition: { x: width / 2, y: width / 2 },
@@ -278,8 +282,7 @@ function handleControls(elapsed: number) {
 		view.y = Math.min(Math.max(0, view.y), mapHeight - height / view.realZoom);
 	}
 }
-function handleZoom(amount: number) {
-	let newZoom = Math.min(Math.max(minZoom, view.zoom + amount), maxZoom);
+function updateZoomWithMousePosition(newZoom: number) {
 	view.x =
 		gameEvent.canvasPosition.x / view.zoom -
 		gameEvent.canvasPosition.x / newZoom +
@@ -289,6 +292,10 @@ function handleZoom(amount: number) {
 		gameEvent.canvasPosition.y / newZoom +
 		view.y;
 	view.zoom = newZoom;
+}
+function handleZoom(amount: number) {
+	let newZoom = Math.min(Math.max(minZoom, view.zoom + amount), maxZoom);
+	updateZoomWithMousePosition(newZoom);
 }
 async function frame(timestamp: number) {
 	elapsed = timestamp - previousTimestamp;
@@ -417,6 +424,44 @@ function mouseHandler(event: MouseEvent) {
 		}
 	}
 }
+interface GestureEvent {
+	pageX: number;
+	pageY: number;
+	rotation: number;
+	scale: number;
+	preventDefault(): void;
+}
+let gestureStart = {
+	position: new Vector2(0, 0),
+	rotation: 0,
+	scale: 1,
+};
+// @ts-ignore
+window.addEventListener("gesturestart", function (e: GestureEvent) {
+	e.preventDefault();
+	gestureStart.position = getPositionOnMap({ x: e.pageX, y: e.pageY });
+	gestureStart.rotation = e.rotation;
+	gestureStart.scale = view.zoom * e.scale;
+	console.log(gestureStart);
+});
+// @ts-ignore
+
+window.addEventListener("gesturechange", function (e: GestureEvent) {
+	e.preventDefault();
+
+	// rotation = gestureStartRotation + e.rotation;
+	view.zoom = gestureStart.scale;
+	updateZoomWithMousePosition(e.scale * view.zoom);
+
+	// posX = e.pageX - startX;
+	// posY = e.pageY - startY;
+
+	// render();
+});
+
+window.addEventListener("gestureend", function (e: GestureEvent) {
+	e.preventDefault();
+});
 window.addEventListener("pointermove", mouseHandler);
 window.addEventListener("pointerdown", mouseHandler);
 window.addEventListener("pointerup", mouseHandler);

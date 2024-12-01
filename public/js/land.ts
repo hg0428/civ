@@ -49,6 +49,152 @@ function generatePerlinNoise({
 
 	return { data: result, min: 0, max };
 }
+
+interface SimplexNoiseSettings {
+	width: number;
+	height: number;
+	lacunarity?: number;
+	persistence?: number;
+	octaves?: number;
+	wrapsHorizontally?: boolean;
+	wrapsVertically?: boolean;
+	seed?: number;
+}
+
+// Helper functions for the noise
+function fade(t: number): number {
+	return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+function lerp(a: number, b: number, t: number): number {
+	return a + t * (b - a);
+}
+
+function grad(hash: number, x: number, y: number): number {
+	const h = hash & 7;
+	const u = h < 4 ? x : y;
+	const v = h < 4 ? y : x;
+	return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+}
+
+// The core Simplex Noise function
+class SimplexNoise {
+	private permutation: number[];
+
+	constructor(seed: number = Math.random() * 65536) {
+		this.permutation = this.buildPermutationTable(seed);
+	}
+
+	private buildPermutationTable(seed: number): number[] {
+		const p = new Uint8Array(256);
+		const perm = new Uint8Array(512);
+
+		for (let i = 0; i < 256; i++) {
+			p[i] = i;
+		}
+
+		for (let i = 255; i > 0; i--) {
+			const j = Math.floor((seed = (seed * 16807) % 2147483647) % (i + 1));
+			[p[i], p[j]] = [p[j], p[i]];
+		}
+
+		for (let i = 0; i < 512; i++) {
+			perm[i] = p[i & 255];
+		}
+
+		return Array.from(perm);
+	}
+
+	public noise2D(x: number, y: number): number {
+		const perm = this.permutation;
+		const F2 = 0.5 * (Math.sqrt(3) - 1);
+		const G2 = (3 - Math.sqrt(3)) / 6;
+
+		const s = (x + y) * F2;
+		const i = Math.floor(x + s);
+		const j = Math.floor(y + s);
+
+		const t = (i + j) * G2;
+		const X0 = i - t;
+		const Y0 = j - t;
+
+		const x0 = x - X0;
+		const y0 = y - Y0;
+
+		const i1 = x0 > y0 ? 1 : 0;
+		const j1 = x0 > y0 ? 0 : 1;
+
+		const x1 = x0 - i1 + G2;
+		const y1 = y0 - j1 + G2;
+		const x2 = x0 - 1 + 2 * G2;
+		const y2 = y0 - 1 + 2 * G2;
+
+		const ii = i & 255;
+		const jj = j & 255;
+
+		const gi0 = perm[ii + perm[jj]] % 12;
+		const gi1 = perm[ii + i1 + perm[jj + j1]] % 12;
+		const gi2 = perm[ii + 1 + perm[jj + 1]] % 12;
+
+		const t0 = 0.5 - x0 * x0 - y0 * y0;
+		const n0 = t0 < 0 ? 0 : Math.pow(t0, 4) * grad(gi0, x0, y0);
+
+		const t1 = 0.5 - x1 * x1 - y1 * y1;
+		const n1 = t1 < 0 ? 0 : Math.pow(t1, 4) * grad(gi1, x1, y1);
+
+		const t2 = 0.5 - x2 * x2 - y2 * y2;
+		const n2 = t2 < 0 ? 0 : Math.pow(t2, 4) * grad(gi2, x2, y2);
+
+		return 70 * (n0 + n1 + n2);
+	}
+}
+function generateSimplexNoise(settings: SimplexNoiseSettings): number[][] {
+	const {
+		width,
+		height,
+		lacunarity = 2.0,
+		persistence = 0.5,
+		octaves = 5,
+		wrapsHorizontally = false,
+		wrapsVertically = false,
+		seed = Math.random() * 65536,
+	} = settings;
+	const noise = new SimplexNoise(seed);
+	const noiseValues: number[][] = Array.from({ length: height }, () =>
+		Array(width).fill(0)
+	);
+
+	for (let octave = 0; octave < octaves; octave++) {
+		const frequency = Math.pow(lacunarity, octave);
+		const amplitude = Math.pow(persistence, octave);
+
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const nx = (x / width) * frequency;
+				const ny = (y / height) * frequency;
+
+				noiseValues[y][x] += noise.noise2D(nx, ny) * amplitude;
+			}
+		}
+	}
+	return noiseValues;
+}
+
+// Example usage
+const settings: SimplexNoiseSettings = {
+	width: 256,
+	height: 256,
+	lacunarity: 2.0,
+	persistence: 0.5,
+	octaves: 4,
+	wrapsHorizontally: true,
+	wrapsVertically: true,
+	seed: 12345,
+};
+
+// const noiseMap = generateSimplexNoise(settings);
+// console.log(noiseMap);
+
 export interface Map {
 	min: number;
 	max: number;
@@ -91,11 +237,17 @@ function generateHeightMap(width: number, height: number) {
 	// 	depth,
 	// 	rough,
 	// });
-	const data = generatePerlinNoise({ width, height, max: 100 });
+	const data = generateSimplexNoise({
+		width,
+		height,
+		wrapsHorizontally: true,
+		// wrapsVertically: true,
+	});
 
-	return data;
+	return { data, min: -1, max: 1 };
 }
 function renderHeightMap(heightMap: Map, width: number, height: number) {
+	console.log("rendering...");
 	let { min, max, data } = heightMap;
 	const range = max - min;
 	const colorData = [];
