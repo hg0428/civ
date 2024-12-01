@@ -13,6 +13,8 @@ import {
 	GameEvent,
 } from "./interactive.ts";
 import { renderMenus } from "./menu.ts";
+import { ActionBar } from "./actionBar.ts";
+import { mapLayer, overlayLayer } from "./game.ts";
 let map: World, imageBitmap: ImageBitmap;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
@@ -44,7 +46,6 @@ let clampedView = false; // Not working right TODO
 let minZoom = 1;
 let maxZoom = 200;
 const buttonNames = ["left", "right", "middle", "back", "forward"];
-
 // https://www.reddit.com/r/proceduralgeneration/comments/37azql/comment/crm6z37/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 
 let gameEvent: GameEvent = {
@@ -182,9 +183,17 @@ function draw(elapsed: number) {
 		viewportWidthOnMinimap,
 		viewportHeightOnMinimap
 	);
-	// overlayLayer.map((drawable) => drawable.draw(ctx, elapsed));
+	// Draw map layer
+	for (let element of mapLayer) {
+		element.draw(ctx, elapsed, gameEvent);
+	}
+	// console.log(overlayLayer);
+	// Draw overlay layer
+	for (let element of overlayLayer) {
+		console.log(element, element.draw);
+		element.draw(ctx, elapsed, gameEvent);
+	}
 	renderMenus(ctx, elapsed, gameEvent);
-
 	// Mouse
 	// Set the style properties
 	ctx.fillStyle = "lightblue";
@@ -317,6 +326,9 @@ function showMap(map: Map) {
 async function init() {
 	map = generateMap(mapResolution.width, mapResolution.height);
 	showMap(map.heightMap);
+	let actionBar: ActionBar = new ActionBar(width, height);
+	overlayLayer.push(actionBar);
+	console.log(overlayLayer)
 }
 function isMouseButtonPressed(buttons: number, buttonName: string) {
 	// Use binary `&` with the relevant power of 2 to check if a given button is pressed
@@ -475,6 +487,13 @@ function setSize() {
 	screenToMap.height = height / mapHeight;
 	gameEvent.canvasWidth = width;
 	gameEvent.canvasHeight = height;
+	// Update action bar position if it exists
+	// if (actionBar) {
+	// 	actionBar.position = {
+	// 		x: width / 2,
+	// 		y: height - actionBar.height / 2 - 20
+	// 	};
+	// }
 }
 window.addEventListener("resize", setSize);
 window.addEventListener(
@@ -516,6 +535,16 @@ document.addEventListener("touchstart", preventDefault, noPassive);
 document.addEventListener("gesturestart", preventDefault, noPassive);
 document.addEventListener("gesturechange", preventDefault, noPassive);
 document.addEventListener("gestureend", preventDefault, noPassive);
+
+function updateSelection(group: People | undefined) {
+    // Deselect all other groups
+    nations.forEach(nation => 
+        nation.groups.forEach(g => {
+            if (g !== group) g.isSelected = false;
+        })
+    );
+    // actionBar.setSelectedGroup(group);
+}
 
 setSize();
 init();
