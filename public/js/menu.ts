@@ -1,6 +1,5 @@
 import { mapLayer, overlayLayer } from "./game.ts";
 import { GameEvent, InteractiveElement } from "./interactive.ts";
-import { People } from "./people.ts";
 import { Circle, draw, Drawable, Rectangle, Thing } from "./shapes.ts";
 
 export const activeMenus: Menu[] = [];

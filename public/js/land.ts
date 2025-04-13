@@ -148,21 +148,25 @@ class SimplexNoise {
 		return 70 * (n0 + n1 + n2);
 	}
 }
-function generateSimplexNoise(settings: SimplexNoiseSettings): number[][] {
+function generateSimplexNoise(settings: SimplexNoiseSettings): Map {
 	const {
 		width,
 		height,
-		lacunarity = 2.0,
-		persistence = 0.5,
-		octaves = 5,
-		wrapsHorizontally = false,
-		wrapsVertically = false,
+		lacunarity = 2.3,
+		persistence = 0.6,
+		octaves = 7,
 		seed = Math.random() * 65536,
 	} = settings;
 	const noise = new SimplexNoise(seed);
 	const noiseValues: number[][] = Array.from({ length: height }, () =>
 		Array(width).fill(0)
 	);
+	const max =
+		persistence === 1
+			? octaves
+			: (1 - Math.pow(persistence, octaves)) / (1 - persistence);
+	const min = -max;
+	const range = max - min;
 
 	for (let octave = 0; octave < octaves; octave++) {
 		const frequency = Math.pow(lacunarity, octave);
@@ -172,12 +176,17 @@ function generateSimplexNoise(settings: SimplexNoiseSettings): number[][] {
 			for (let x = 0; x < width; x++) {
 				const nx = (x / width) * frequency;
 				const ny = (y / height) * frequency;
-
 				noiseValues[y][x] += noise.noise2D(nx, ny) * amplitude;
 			}
 		}
 	}
-	return noiseValues;
+	// Normalize to [0, 1]
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			noiseValues[y][x] = (noiseValues[y][x] - min) / range;
+		}
+	}
+	return { data: noiseValues, min: 0, max: 1 };
 }
 
 // Example usage
@@ -191,9 +200,6 @@ const settings: SimplexNoiseSettings = {
 	wrapsVertically: true,
 	seed: 12345,
 };
-
-// const noiseMap = generateSimplexNoise(settings);
-// console.log(noiseMap);
 
 export interface Map {
 	min: number;
@@ -244,30 +250,51 @@ function generateHeightMap(width: number, height: number) {
 		// wrapsVertically: true,
 	});
 
-	return { data, min: -1, max: 1 };
+	return data;
 }
-function renderHeightMap(heightMap: Map, width: number, height: number) {
-	console.log("rendering...");
-	let { min, max, data } = heightMap;
+function renderHeightMap(
+	heightMap: Map,
+	width: number,
+	height: number,
+	tintLevels: { threshold: number; color: number[] }[]
+) {
+	const { min, max, data } = heightMap;
 	const range = max - min;
-	const colorData = [];
+	const colorData = new Uint8ClampedArray(width * height * 4);
+
+	// Sort tint levels in descending order of threshold for early-out optimization
+	tintLevels.sort((a, b) => a.threshold - b.threshold);
+
+	let idx = 0;
 	for (let i = 0; i < height; i++) {
 		for (let j = 0; j < width; j++) {
-			const level = (data[i][j] - min) / range;
-			if (level < 0.69) {
-				colorData.push(128 * level, 128 * level, 128 + 128 * level, 255);
-			} else {
-				colorData.push(level * 255, level * 255, level * 255, 255);
+			const level = data[i][j];
+			const normalizedLevel = level * 255;
+
+			// Default color (grayscale)
+			let r = normalizedLevel;
+			let g = normalizedLevel;
+			let b = normalizedLevel;
+
+			// Apply tint if applicable
+			for (const tint of tintLevels) {
+				if (level < tint.threshold) {
+					r = tint.color[0] * normalizedLevel;
+					g = tint.color[1] * normalizedLevel;
+					b = tint.color[2] * normalizedLevel;
+					break;
+				}
 			}
+
+			// Write directly to the array at the correct position
+			colorData[idx++] = r;
+			colorData[idx++] = g;
+			colorData[idx++] = b;
+			colorData[idx++] = 255; // Alpha channel
 		}
 	}
-
-	const imageData = new ImageData(
-		Uint8ClampedArray.from(colorData),
-		width,
-		height
-	);
-	return imageData;
+	console.log("Map rendered!");
+	return new ImageData(colorData, width, height);
 }
 function generateMaterialMap(width: number, height: number) {
 	let map = {};
@@ -313,11 +340,8 @@ function generateHeatMap(
  */
 function generateMap(width: number, height: number) {
 	let heightMap = generateHeightMap(width, height);
-	// console.log("Generated height map", heightMap);
 	let materialMap = {}; //generateMaterialMap(width, height);
-	// console.log("Generated material map", materialMap);
 	let heatMap = { min: 0, max: 1, data: [] }; //generateHeatMap(width, height, heightMap, materialMap);
-	// console.log("Generated heat map", heatMap);
 
 	return new World(width, height, materialMap, heightMap, heatMap);
 }

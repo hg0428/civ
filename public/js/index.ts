@@ -1,4 +1,3 @@
-import { Physical, Mental, Person, People, nations } from "./people.ts";
 import { Rectangle, Vector2, getDistance2D, isInBounds } from "./shapes.ts";
 import {
 	generateHeightMap,
@@ -13,14 +12,30 @@ import {
 	GameEvent,
 } from "./interactive.ts";
 import { renderMenus } from "./menu.ts";
-import { ActionBar } from "./actionBar.ts";
 import { mapLayer, overlayLayer } from "./game.ts";
+import { createPlayerNation, nationsRegistry } from "./nation.ts";
+import { PersonVisualRegistry } from "./personVisual.ts";
+import { Person } from "./people.ts";
+import { actionBar } from "./actionBar.ts";
+import { selectedAction, setSelectedAction, cursorType } from "./gameState.ts";
+import { initTerrainUtils } from "./terrainUtils.ts";
 let map: World, imageBitmap: ImageBitmap;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
+const pixelated = true;
 let pixelDensity = window.devicePixelRatio;
 let width = window.innerWidth * pixelDensity;
 let height = window.innerHeight * pixelDensity;
+const tintLevels = [
+	{
+		threshold: 0.35,
+		color: [0.5, 0.5, 1 / 0.35],
+	},
+	{
+		threshold: 0.75,
+		color: [0.8, 1 / 0.75, 0.55],
+	},
+];
 let view = {
 	x: 0,
 	y: 0,
@@ -32,20 +47,23 @@ let view = {
 let KeysPressed = new Set();
 let previousTimestamp = 0;
 let elapsed = 0;
-let scale = 32;
+let scale = 10;
 // 157x100
-let mapResolution = new Rectangle(157, 100);
-let coordinateToMapRatio = 10;
+let mapResolution = new Rectangle(157 * scale, 100 * scale);
+let coordinateToMapRatio = 1;
 const mapWidth = mapResolution.width * coordinateToMapRatio;
 const mapHeight = mapResolution.height * coordinateToMapRatio;
 let screenToMap = {
 	width: 1,
 	height: 1,
 };
-let clampedView = false; // Not working right TODO
 let minZoom = 1;
 let maxZoom = 200;
 const buttonNames = ["left", "right", "middle", "back", "forward"];
+// Loading screen state
+let isLoading = true;
+let loadingProgress = 0;
+let loadingMessage = "Generating world...";
 // https://www.reddit.com/r/proceduralgeneration/comments/37azql/comment/crm6z37/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 
 let gameEvent: GameEvent = {
@@ -120,12 +138,47 @@ function getPositionOnMap(point: Vector2) {
 }
 function draw(elapsed: number) {
 	gameEvent.elapsed = elapsed;
+	if (isLoading) {
+		renderLoadingScreen();
+		return;
+	}
+
 	ctx.clearRect(0, 0, width, height);
 	ctx.fillStyle = "lightblue";
 	ctx.fillRect(0, 0, width, height);
 	if (!imageBitmap) return;
 	handleControls(elapsed);
+
+	// Update all person visuals (movement, etc.)
+	PersonVisualRegistry.updateAll(elapsed);
+
+	// Draw the map and map elements
+	ctx.save();
+	try {
+		view.realZoom = view.zoom * Math.min(screenToMap.width, screenToMap.height);
+		ctx.translate(-view.x * view.zoom, -view.y * view.zoom);
+		ctx.scale(view.realZoom, view.realZoom);
+
+		// Draw Game map
+		ctx.imageSmoothingEnabled = !pixelated;
+		ctx.drawImage(imageBitmap, 0, 0, mapWidth, mapHeight);
+
+		// Render map-based interactive elements (including people)
+		for (let element of InteractiveElements) {
+			if (element.display && element.isMapElement) {
+				element.draw(ctx, elapsed, gameEvent);
+			}
+		}
+	} finally {
+		ctx.restore();
+	}
+
+	// Run game logic and render UI elements
 	runGame(elapsed);
+
+	// Draw action bar
+	actionBar.draw(ctx);
+
 	// Overlay
 	drawStroked(
 		`X: ${gameEvent.mapPosition.x.toFixed(
@@ -187,69 +240,620 @@ function draw(elapsed: number) {
 	for (let element of mapLayer) {
 		element.draw(ctx, elapsed, gameEvent);
 	}
-	// console.log(overlayLayer);
 	// Draw overlay layer
 	for (let element of overlayLayer) {
-		console.log(element, element.draw);
 		element.draw(ctx, elapsed, gameEvent);
 	}
 	renderMenus(ctx, elapsed, gameEvent);
-	// Mouse
-	// Set the style properties
-	ctx.fillStyle = "lightblue";
-	ctx.strokeStyle = "black";
-	ctx.lineWidth = 5;
 
-	// Calculate the offset
-	let offset = ctx.lineWidth / 2;
+	// Draw cursor based on current mode
+	if (cursorType === "move") {
+		// Draw crosshair cursor for move mode
+		const crosshairSize = 20; // Larger crosshair
+		const lineWidth = 3;
 
-	// Begin the path
-	ctx.beginPath();
-	// Adjust the starting point by the offset
-	ctx.moveTo(
-		gameEvent.canvasPosition.x + offset,
-		gameEvent.canvasPosition.y + offset
-	); // Starting point
-	ctx.lineTo(
-		gameEvent.canvasPosition.x + offset,
-		gameEvent.canvasPosition.y + 45 - offset
-	); // Line down
-	ctx.lineTo(
-		gameEvent.canvasPosition.x + 15 - offset,
-		gameEvent.canvasPosition.y + 30 - offset
-	); // Line to the right and up
-	ctx.lineTo(
-		gameEvent.canvasPosition.x + 37.5 - offset,
-		gameEvent.canvasPosition.y + 30 - offset
-	); // Line to the right
+		ctx.strokeStyle = "white";
+		ctx.lineWidth = lineWidth;
 
-	// Close the path to ensure a complete shape
-	ctx.closePath();
+		// Horizontal line
+		ctx.beginPath();
+		ctx.moveTo(
+			gameEvent.canvasPosition.x - crosshairSize,
+			gameEvent.canvasPosition.y
+		);
+		ctx.lineTo(
+			gameEvent.canvasPosition.x + crosshairSize,
+			gameEvent.canvasPosition.y
+		);
+		ctx.stroke();
 
-	// Fill and stroke the shape
-	ctx.fill();
-	ctx.stroke();
+		// Vertical line
+		ctx.beginPath();
+		ctx.moveTo(
+			gameEvent.canvasPosition.x,
+			gameEvent.canvasPosition.y - crosshairSize
+		);
+		ctx.lineTo(
+			gameEvent.canvasPosition.x,
+			gameEvent.canvasPosition.y + crosshairSize
+		);
+		ctx.stroke();
+
+		// Add an outline to make it more visible
+		ctx.strokeStyle = "black";
+		ctx.lineWidth = 1;
+
+		// Horizontal line outline
+		ctx.beginPath();
+		ctx.moveTo(
+			gameEvent.canvasPosition.x - crosshairSize - 1,
+			gameEvent.canvasPosition.y
+		);
+		ctx.lineTo(
+			gameEvent.canvasPosition.x + crosshairSize + 1,
+			gameEvent.canvasPosition.y
+		);
+		ctx.stroke();
+
+		// Vertical line outline
+		ctx.beginPath();
+		ctx.moveTo(
+			gameEvent.canvasPosition.x,
+			gameEvent.canvasPosition.y - crosshairSize - 1
+		);
+		ctx.lineTo(
+			gameEvent.canvasPosition.x,
+			gameEvent.canvasPosition.y + crosshairSize + 1
+		);
+		ctx.stroke();
+	} else {
+		// Draw the original mouse cursor
+		// Set the style properties
+		ctx.fillStyle = "lightblue";
+		ctx.strokeStyle = "black";
+		ctx.lineWidth = 5;
+
+		// Calculate the offset
+		let offset = ctx.lineWidth / 2;
+
+		// Begin the path
+		ctx.beginPath();
+		// Adjust the starting point by the offset
+		ctx.moveTo(
+			gameEvent.canvasPosition.x + offset,
+			gameEvent.canvasPosition.y + offset
+		); // Starting point
+		ctx.lineTo(
+			gameEvent.canvasPosition.x + offset,
+			gameEvent.canvasPosition.y + 45 - offset
+		); // Line down
+		ctx.lineTo(
+			gameEvent.canvasPosition.x + 15 - offset,
+			gameEvent.canvasPosition.y + 30 - offset
+		); // Line to the right and up
+		ctx.lineTo(
+			gameEvent.canvasPosition.x + 37.5 - offset,
+			gameEvent.canvasPosition.y + 30 - offset
+		); // Line to the right
+
+		// Close the path to ensure a complete shape
+		ctx.closePath();
+
+		// Fill and stroke the shape
+		ctx.fill();
+		ctx.stroke();
+	}
 }
 function runGame(elapsed: number) {
 	// Prepare state
-	ctx.save();
-	try {
-		view.realZoom = view.zoom * Math.min(screenToMap.width, screenToMap.height);
-		ctx.translate(-view.x * view.zoom, -view.y * view.zoom);
-		ctx.scale(view.realZoom, view.realZoom);
+	gameEvent.elapsed = elapsed;
 
-		// Draw Game
-		ctx.drawImage(imageBitmap, 0, 0, mapWidth, mapHeight);
-		nations.forEach((nation) => nation.draw(ctx, elapsed, gameEvent));
-		// mapLayer.map((drawable) => drawable.draw(ctx, elapsed));
-	} finally {
-		// Restore
-		ctx.restore();
+	// Update and render interactive elements (UI elements in screen space)
+	for (let element of InteractiveElements) {
+		if (element.display && !element.isMapElement) {
+			element.draw(ctx, elapsed, gameEvent);
+		}
+	}
+
+	// Render menus
+	renderMenus(ctx, elapsed, gameEvent);
+}
+async function init() {
+	isLoading = true;
+	loadingProgress = 0;
+	loadingMessage = "Initializing...";
+
+	console.log("Initializing game...");
+
+	// Initialize the player nation with a distinctive color
+	const playerNation = createPlayerNation();
+	playerNation.color = [0, 0.6, 0.9, 1]; // Bright blue color for better visibility
+	nationsRegistry.addNation(playerNation);
+
+	console.log("Player nation created:", playerNation);
+
+	// Create initial people for the player - increased from 5 to 10 for better testing
+	const initialPeopleCount = 10;
+
+	console.log(`Creating ${initialPeopleCount} people...`);
+
+	// Create people in a more organized pattern rather than completely random
+	// This will place them in a semi-circle formation for easier selection
+	for (let i = 0; i < initialPeopleCount; i++) {
+		// Calculate position in a semi-circle pattern
+		const angle = (Math.PI * i) / (initialPeopleCount - 1);
+		const radius = mapWidth * 0.2; // 20% of map width
+		const centerX = mapWidth * 0.5;
+		const centerY = mapHeight * 0.7;
+
+		const x = centerX + Math.cos(angle) * radius;
+		const y = centerY + Math.sin(angle) * radius;
+
+		const position = { x, y };
+
+		// Create the person and add to nation
+		const person = playerNation.createPerson(position);
+
+		// Create visual representation
+		const personVisual = PersonVisualRegistry.createPersonVisual(
+			person,
+			playerNation
+		);
+
+		// Log the creation for debugging
+		console.log(
+			`Created person at position (${x.toFixed(0)}, ${y.toFixed(0)})`
+		);
+	}
+
+	console.log(
+		"Total people created:",
+		PersonVisualRegistry.getPersonVisuals().length
+	);
+
+	// Generate a new map
+	fetch("/generate-map", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			width: mapResolution.width,
+			height: mapResolution.height,
+		}),
+	})
+		.then((response) => response.json())
+		.then((data) => {
+			map = data.map;
+
+			// Initialize terrain utilities with the loaded map
+			initTerrainUtils(map);
+			console.log("Terrain utilities initialized with map data");
+
+			showMap(map.heightMap);
+			isLoading = false;
+
+			// Center the view on the player's people
+			view.x = mapWidth * 0.5 * screenToMap.width;
+			view.y = mapHeight * 0.7 * screenToMap.height;
+			view.zoom = 5; // Start with a reasonable zoom level
+
+			console.log("Map loaded, game ready!");
+		});
+}
+function renderLoadingScreen() {
+	ctx.fillStyle = "black";
+	ctx.fillRect(0, 0, width, height);
+
+	// Draw title
+	ctx.font = "bold 40px Sans-serif";
+	ctx.fillStyle = "white";
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.fillText("Civilization Game", width / 2, height / 3);
+
+	// Draw loading message
+	ctx.font = "30px Sans-serif";
+	ctx.fillText(loadingMessage, width / 2, height / 2);
+
+	// Draw progress bar background
+	const progressBarWidth = width * 0.6;
+	const progressBarHeight = 20;
+	const progressBarX = width / 2 - progressBarWidth / 2;
+	const progressBarY = height / 2 + 50;
+
+	ctx.fillStyle = "#333";
+	ctx.fillRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight);
+
+	// Draw progress bar fill
+	ctx.fillStyle = "#4CAF50";
+	ctx.fillRect(
+		progressBarX,
+		progressBarY,
+		progressBarWidth * (loadingProgress / 100),
+		progressBarHeight
+	);
+
+	// Draw progress percentage
+	ctx.font = "16px Sans-serif";
+	ctx.fillStyle = "white";
+	ctx.fillText(
+		`${loadingProgress}%`,
+		width / 2,
+		progressBarY + progressBarHeight + 20
+	);
+}
+async function frame(timestamp: number) {
+	elapsed = timestamp - previousTimestamp;
+	previousTimestamp = timestamp;
+
+	draw(elapsed);
+	requestAnimationFrame(frame);
+}
+function showMap(map: Map) {
+	let imageData = renderHeightMap(
+		map,
+		mapResolution.width,
+		mapResolution.height,
+		tintLevels
+	);
+	createImageBitmap(imageData).then((x) => {
+		imageBitmap = x;
+		isLoading = false;
+	});
+}
+function isMouseButtonPressed(buttons: number, buttonName: string) {
+	// Use binary `&` with the relevant power of 2 to check if a given button is pressed
+	return Boolean(buttons & (1 << buttonNames.indexOf(buttonName)));
+}
+function hoveringCheck(mapOnly: boolean = false) {
+	gameEvent.mapPosition = getPositionOnMap(gameEvent.canvasPosition);
+	InteractiveElements.forEach((element) => {
+		let previousValue = element.hovering;
+		if (element.isMapElement)
+			element.hovering = isInBounds(gameEvent.mapPosition, element);
+		else if (mapOnly) return;
+		else element.hovering = isInBounds(gameEvent.canvasPosition, element);
+		if (previousValue === false && element.hovering === true) {
+			element.dispatchEvent(createEvent("mouseover"));
+		} else if (previousValue === true && element.hovering === false) {
+			element.dispatchEvent(createEvent("mouseout"));
+		}
+	});
+}
+function createEvent(type: string, options: Partial<GameEvent> = {}) {
+	let event: GameEvent = {
+		...gameEvent,
+		type,
+		...options,
+	};
+	return event;
+}
+function mouseHandler(event: MouseEvent) {
+	event.preventDefault();
+
+	let now = performance.now();
+	let type = event.type;
+	let buttons = event.buttons;
+	let position = {
+		x: event.clientX * pixelDensity,
+		y: event.clientY * pixelDensity,
+	};
+
+	// Update game event with current mouse state
+	gameEvent = createEvent(type, {
+		canvasPosition: position,
+		mouseButtons: {
+			left: isMouseButtonPressed(buttons, "left"),
+			right: isMouseButtonPressed(buttons, "right"),
+			middle: isMouseButtonPressed(buttons, "middle"),
+			back: isMouseButtonPressed(buttons, "back"),
+			forward: isMouseButtonPressed(buttons, "forward"),
+		},
+	});
+
+	// Handle right-click for quick movement
+	if (type === "pointerdown" && isMouseButtonPressed(buttons, "right")) {
+		// Get the selected person
+		const selectedEntity = actionBar.getSelectedEntity();
+		if (selectedEntity instanceof Person) {
+			// Find the PersonVisual for this person
+			const personVisuals = PersonVisualRegistry.getPersonVisuals();
+			const personVisual = personVisuals.find(
+				(pv) => pv.getPerson() === selectedEntity
+			);
+
+			if (personVisual) {
+				// Move the person to the clicked location on the map
+				personVisual.moveTo(gameEvent.mapPosition);
+
+				// Prevent further processing of this click
+				event.preventDefault();
+				return;
+			}
+		}
+	}
+
+	// Handle person movement when Move action is selected
+	if (
+		selectedAction === "Move" &&
+		type === "pointerdown" &&
+		isMouseButtonPressed(buttons, "left")
+	) {
+		const selectedEntity = actionBar.getSelectedEntity();
+		if (selectedEntity instanceof Person) {
+			// Find the PersonVisual for this person
+			const personVisuals = PersonVisualRegistry.getPersonVisuals();
+			const personVisual = personVisuals.find(
+				(pv) => pv.getPerson() === selectedEntity
+			);
+
+			if (personVisual) {
+				// Move the person to the clicked location on the map
+				personVisual.moveTo(gameEvent.mapPosition);
+
+				// Reset the action and cursor
+				setSelectedAction(null);
+
+				// Prevent further processing of this click
+				return;
+			}
+		}
+	}
+
+	// Handle hovering
+	hoveringCheck();
+
+	// Handle button state updates
+	for (let buttonName of buttonNames) {
+		let buttonPressed = isMouseButtonPressed(buttons, buttonName);
+		let buttonState = clickState[buttonName];
+
+		if (buttonPressed && !buttonState.pressed) {
+			// Button was just pressed
+			buttonState.pressed = true;
+			buttonState.pressed_time = now;
+			buttonState.pressed_position = { ...position };
+			buttonState.pressed_position_map = { ...gameEvent.mapPosition };
+
+			// Prevent context menu on right-click (especially for Safari)
+			if (event.button === 2) {
+				event.preventDefault();
+			}
+
+			gameEvent.type = "pointerdown";
+			gameEvent.mouseButtons[buttonName] = true;
+		} else if (!buttonPressed && buttonState.pressed) {
+			// Button was just released
+			buttonState.pressed = false;
+			let pressedDuration = now - buttonState.pressed_time;
+			let pressedDistanceMoved = getDistance2D(
+				buttonState.pressed_position,
+				position
+			);
+
+			let clickStartPosition = buttonState.pressed_position;
+			let clickStartPositionMap = buttonState.pressed_position_map;
+			let clickStartTime = buttonState.pressed_time;
+
+			// Handle click vs. drag
+			if (
+				pressedDuration < clickTimeThreshold &&
+				pressedDistanceMoved < clickDistanceThreshold
+			) {
+				// It's a click!
+				for (let element of InteractiveElements) {
+					if (
+						element.isMapElement &&
+						isInBounds(clickStartPositionMap, element)
+					) {
+						element.dispatchEvent(
+							createEvent("click", {
+								click: {
+									startPosition: clickStartPosition,
+									startPositionOnMap: clickStartPositionMap,
+									endPosition: gameEvent.canvasPosition,
+									endPositionOnMap: gameEvent.mapPosition,
+									startTime: clickStartTime,
+									endTime: now,
+									duration: pressedDuration,
+									distanceMoved: pressedDistanceMoved,
+									button: buttonName,
+								},
+							})
+						);
+						break; // Only click one!!
+					} else if (
+						!element.isMapElement &&
+						isInBounds(clickStartPosition, element)
+					) {
+						element.dispatchEvent(
+							createEvent("click", {
+								click: {
+									startPosition: clickStartPosition,
+									startPositionOnMap: clickStartPositionMap,
+									endPosition: gameEvent.canvasPosition,
+									endPositionOnMap: gameEvent.mapPosition,
+									startTime: clickStartTime,
+									endTime: now,
+									duration: pressedDuration,
+									distanceMoved: pressedDistanceMoved,
+									button: buttonName,
+								},
+							})
+						);
+						break; // Only click one!!
+					}
+				}
+			} else {
+				// Drag
+				for (let element of InteractiveElements) {
+					if (isInBounds(clickStartPositionMap, element)) {
+						element.dispatchEvent(
+							createEvent("drag", {
+								click: {
+									startPosition: clickStartPosition,
+									startPositionOnMap: clickStartPositionMap,
+									endPosition: gameEvent.canvasPosition,
+									endPositionOnMap: gameEvent.mapPosition,
+									startTime: clickStartTime,
+									endTime: now,
+									duration: pressedDuration,
+									distanceMoved: pressedDistanceMoved,
+									button: buttonName,
+								},
+							})
+						);
+						break; // Only drag one!!
+					}
+				}
+			}
+		}
 	}
 }
+
+interface GestureEvent {
+	pageX: number;
+	pageY: number;
+	rotation: number;
+	scale: number;
+	preventDefault(): void;
+}
+
+let gestureStartData = {
+	position: new Vector2(0, 0),
+	rotation: 0,
+	scale: 1,
+};
+
+function gestureStart(event: GestureEvent) {
+	event.preventDefault();
+	gestureStartData.position = getPositionOnMap({
+		x: event.pageX,
+		y: event.pageY,
+	});
+	gestureStartData.rotation = event.rotation;
+	gestureStartData.scale = view.zoom * event.scale;
+}
+
+function gestureChange(event: GestureEvent) {
+	event.preventDefault();
+
+	// rotation = gestureStartRotation + e.rotation;
+	view.zoom = gestureStartData.scale;
+	updateZoomWithMousePosition(event.scale * view.zoom);
+
+	// posX = e.pageX - startX;
+	// posY = e.pageY - startY;
+
+	// render();
+}
+
+function gestureEnd(event: GestureEvent) {
+	event.preventDefault();
+}
+
+window.addEventListener("pointermove", mouseHandler);
+window.addEventListener("pointerdown", mouseHandler);
+window.addEventListener("pointerup", mouseHandler);
+
+// Prevent context menu on right-click
+window.addEventListener(
+	"contextmenu",
+	(event) => {
+		event.preventDefault();
+	},
+	false
+);
+
 function handleControls(elapsed: number) {
 	// TODO: add gamepad support
 	let moved = false;
+
+	// Gamepad support
+	const gamepads = navigator.getGamepads();
+	for (const gamepad of gamepads) {
+		if (gamepad) {
+			// Right trigger (index 7) zooms in
+			if (gamepad.buttons[7] && gamepad.buttons[7].value > 0.1) {
+				handleZoom(
+					elapsed * view.zoom_speed * view.zoom * gamepad.buttons[7].value
+				);
+			}
+
+			// Left trigger (index 6) zooms out
+			if (gamepad.buttons[6] && gamepad.buttons[6].value > 0.1) {
+				handleZoom(
+					-elapsed * view.zoom_speed * view.zoom * gamepad.buttons[6].value
+				);
+			}
+
+			// Left thumbstick cursor movement (axes 0 and 1)
+			const cursorDeadzone = 0.1;
+			const cursorSpeed = 3; // Adjust this value to control cursor speed
+
+			let cursorMoved = false;
+
+			// Check if left thumbstick is being used
+			if (
+				Math.abs(gamepad.axes[0]) > cursorDeadzone ||
+				Math.abs(gamepad.axes[1]) > cursorDeadzone
+			) {
+				// Update cursor position based on thumbstick input
+				gameEvent.canvasPosition.x += gamepad.axes[0] * cursorSpeed * elapsed;
+				gameEvent.canvasPosition.y += gamepad.axes[1] * cursorSpeed * elapsed;
+
+				// Clamp cursor position to canvas boundaries
+				gameEvent.canvasPosition.x = Math.max(
+					0,
+					Math.min(width, gameEvent.canvasPosition.x)
+				);
+				gameEvent.canvasPosition.y = Math.max(
+					0,
+					Math.min(height, gameEvent.canvasPosition.y)
+				);
+
+				// Update map position and check for hovering elements
+				hoveringCheck();
+				cursorMoved = true;
+			}
+
+			// Right thumbstick panning (axes 2 and 3)
+			const deadzone = 0.1; // Ignore small movements
+			const panSpeed = 3; // Adjust this value to control panning speed
+
+			// Horizontal movement (left/right)
+			if (Math.abs(gamepad.axes[2]) > deadzone) {
+				view.x +=
+					(elapsed * view.move_speed * gamepad.axes[2] * panSpeed) / view.zoom;
+				moved = true;
+			}
+
+			// Vertical movement (up/down)
+			if (Math.abs(gamepad.axes[3]) > deadzone) {
+				view.y +=
+					(elapsed * view.move_speed * gamepad.axes[3] * panSpeed) / view.zoom;
+				moved = true;
+			}
+
+			// Handle gamepad button presses for mouse clicks
+			// A button (index 0) = left click
+			if (gamepad.buttons[0] && gamepad.buttons[0].pressed) {
+				if (!gameEvent.mouseButtons.left) {
+					// Simulate mouse down
+					gameEvent.mouseButtons.left = true;
+					clickState.left.pressed = true;
+					clickState.left.pressed_time = performance.now();
+					clickState.left.pressed_position = { ...gameEvent.canvasPosition };
+					clickState.left.pressed_position_map = { ...gameEvent.mapPosition };
+				}
+			} else if (gameEvent.mouseButtons.left) {
+				// Simulate mouse up
+				gameEvent.mouseButtons.left = false;
+				// The mouseHandler function will handle the click/drag logic on the next frame
+			}
+		}
+	}
 	// Zooming with + and -
 	if (KeysPressed.has("-")) {
 		handleZoom(-elapsed * view.zoom_speed * view.zoom);
@@ -285,12 +889,8 @@ function handleControls(elapsed: number) {
 	if (moved) {
 		hoveringCheck(true);
 	}
-	// Clamped View
-	if (clampedView) {
-		view.x = Math.min(Math.max(0, view.x), mapWidth - width / view.realZoom);
-		view.y = Math.min(Math.max(0, view.y), mapHeight - height / view.realZoom);
-	}
 }
+
 function updateZoomWithMousePosition(newZoom: number) {
 	view.x =
 		gameEvent.canvasPosition.x / view.zoom -
@@ -302,200 +902,12 @@ function updateZoomWithMousePosition(newZoom: number) {
 		view.y;
 	view.zoom = newZoom;
 }
+
 function handleZoom(amount: number) {
 	let newZoom = Math.min(Math.max(minZoom, view.zoom + amount), maxZoom);
 	updateZoomWithMousePosition(newZoom);
 }
-async function frame(timestamp: number) {
-	elapsed = timestamp - previousTimestamp;
-	previousTimestamp = timestamp;
 
-	draw(elapsed);
-	requestAnimationFrame(frame);
-}
-function showMap(map: Map) {
-	let imageData = renderHeightMap(
-		map,
-		mapResolution.width,
-		mapResolution.height
-	);
-	createImageBitmap(imageData).then((x) => {
-		imageBitmap = x;
-	});
-}
-async function init() {
-	map = generateMap(mapResolution.width, mapResolution.height);
-	showMap(map.heightMap);
-	let actionBar: ActionBar = new ActionBar(width, height);
-	overlayLayer.push(actionBar);
-	console.log(overlayLayer)
-}
-function isMouseButtonPressed(buttons: number, buttonName: string) {
-	// Use binary `&` with the relevant power of 2 to check if a given button is pressed
-	return Boolean(buttons & (1 << buttonNames.indexOf(buttonName)));
-}
-function hoveringCheck(mapOnly: boolean = false) {
-	gameEvent.mapPosition = getPositionOnMap(gameEvent.canvasPosition);
-	InteractiveElements.forEach((element) => {
-		let previousValue = element.hovering;
-		if (element.isMapElement)
-			element.hovering = isInBounds(gameEvent.mapPosition, element);
-		else if (mapOnly) return;
-		else element.hovering = isInBounds(gameEvent.canvasPosition, element);
-		if (previousValue === false && element.hovering === true) {
-			element.dispatchEvent(createEvent("mouseover"));
-		} else if (previousValue === true && element.hovering === false) {
-			element.dispatchEvent(createEvent("mouseout"));
-		}
-	});
-}
-function createEvent(type: string, options: Partial<GameEvent> = {}) {
-	let event: GameEvent = {
-		...gameEvent,
-		type,
-		...options,
-	};
-	return event;
-}
-function mouseHandler(event: MouseEvent) {
-	const now = performance.now();
-	event.preventDefault();
-	gameEvent.canvasPosition.x = event.clientX * pixelDensity;
-	gameEvent.canvasPosition.y = event.clientY * pixelDensity;
-	hoveringCheck();
-	for (const buttonName of buttonNames) {
-		gameEvent.mouseButtons[buttonName] = isMouseButtonPressed(
-			event.buttons,
-			buttonName
-		);
-		const wasPressed = clickState[buttonName].pressed;
-		const isPressed = gameEvent.mouseButtons[buttonName];
-		if (isPressed && !wasPressed) {
-			clickState[buttonName].pressed = true;
-			clickState[buttonName].pressed_time = performance.now();
-			clickState[buttonName].pressed_position = gameEvent.canvasPosition;
-			clickState[buttonName].pressed_position_map = gameEvent.mapPosition;
-		} else if (wasPressed && !isPressed) {
-			// TODO: ONLY DO THIS FOR LEFT CLICK???
-			clickState[buttonName].pressed = false;
-			const clickStartPosition = clickState[buttonName].pressed_position;
-			const clickStartPositionMap = clickState[buttonName].pressed_position_map;
-			const clickStartTime = clickState[buttonName].pressed_time;
-			const pressedDuration = now - clickStartTime;
-			const pressedDistanceMoved = getDistance2D(
-				clickStartPosition,
-				gameEvent.canvasPosition
-			);
-			if (
-				pressedDuration < clickTimeThreshold &&
-				pressedDistanceMoved < clickDistanceThreshold
-			) {
-				console.log("click");
-				// Click
-				InteractiveElements.forEach((element) => {
-					if (element.hovering)
-						element.dispatchEvent(
-							createEvent("click", {
-								click: {
-									startPosition: clickStartPosition,
-									startPositionOnMap: clickStartPositionMap,
-									endPosition: gameEvent.canvasPosition,
-									endPositionOnMap: gameEvent.mapPosition,
-									startTime: clickStartTime,
-									endTime: now,
-									duration: pressedDuration,
-									distanceMoved: pressedDistanceMoved,
-									button: buttonName,
-								},
-							})
-						);
-				});
-			} else {
-				// Drag
-				for (let element of InteractiveElements) {
-					if (isInBounds(clickStartPositionMap, element)) {
-						element.dispatchEvent(
-							createEvent("drag", {
-								click: {
-									startPosition: clickStartPosition,
-									startPositionOnMap: clickStartPositionMap,
-									endPosition: gameEvent.canvasPosition,
-									endPositionOnMap: gameEvent.mapPosition,
-									startTime: clickStartTime,
-									endTime: now,
-									duration: pressedDuration,
-									distanceMoved: pressedDistanceMoved,
-									button: buttonName,
-								},
-							})
-						);
-						break; // Only drag one!!
-					}
-				}
-			}
-		}
-	}
-}
-interface GestureEvent {
-	pageX: number;
-	pageY: number;
-	rotation: number;
-	scale: number;
-	preventDefault(): void;
-}
-let gestureStart = {
-	position: new Vector2(0, 0),
-	rotation: 0,
-	scale: 1,
-};
-// @ts-ignore
-window.addEventListener("gesturestart", function (e: GestureEvent) {
-	e.preventDefault();
-	gestureStart.position = getPositionOnMap({ x: e.pageX, y: e.pageY });
-	gestureStart.rotation = e.rotation;
-	gestureStart.scale = view.zoom * e.scale;
-	console.log(gestureStart);
-});
-// @ts-ignore
-
-window.addEventListener("gesturechange", function (e: GestureEvent) {
-	e.preventDefault();
-
-	// rotation = gestureStartRotation + e.rotation;
-	view.zoom = gestureStart.scale;
-	updateZoomWithMousePosition(e.scale * view.zoom);
-
-	// posX = e.pageX - startX;
-	// posY = e.pageY - startY;
-
-	// render();
-});
-
-window.addEventListener("gestureend", function (e: GestureEvent) {
-	e.preventDefault();
-});
-window.addEventListener("pointermove", mouseHandler);
-window.addEventListener("pointerdown", mouseHandler);
-window.addEventListener("pointerup", mouseHandler);
-function setSize() {
-	pixelDensity = window.devicePixelRatio;
-	width = window.innerWidth * pixelDensity;
-	height = window.innerHeight * pixelDensity;
-	canvas.width = width;
-	canvas.height = height;
-	screenToMap.width = width / mapWidth;
-	screenToMap.height = height / mapHeight;
-	gameEvent.canvasWidth = width;
-	gameEvent.canvasHeight = height;
-	// Update action bar position if it exists
-	// if (actionBar) {
-	// 	actionBar.position = {
-	// 		x: width / 2,
-	// 		y: height - actionBar.height / 2 - 20
-	// 	};
-	// }
-}
-window.addEventListener("resize", setSize);
 window.addEventListener(
 	"wheel",
 	(event) => {
@@ -515,6 +927,7 @@ window.addEventListener(
 	},
 	{ passive: false }
 );
+
 window.addEventListener("keydown", (event) => {
 	KeysPressed.add(event.key.toLowerCase());
 });
@@ -536,16 +949,36 @@ document.addEventListener("gesturestart", preventDefault, noPassive);
 document.addEventListener("gesturechange", preventDefault, noPassive);
 document.addEventListener("gestureend", preventDefault, noPassive);
 
-function updateSelection(group: People | undefined) {
-    // Deselect all other groups
-    nations.forEach(nation => 
-        nation.groups.forEach(g => {
-            if (g !== group) g.isSelected = false;
-        })
-    );
-    // actionBar.setSelectedGroup(group);
-}
+// Gamepad connection event listeners
+window.addEventListener("gamepadconnected", (e) => {
+	console.log(
+		`Gamepad connected at index ${e.gamepad.index}: ${e.gamepad.id}. 
+    ${e.gamepad.buttons.length} buttons, ${e.gamepad.axes.length} axes.`
+	);
+});
+
+window.addEventListener("gamepaddisconnected", (e) => {
+	console.log(
+		`Gamepad disconnected from index ${e.gamepad.index}: ${e.gamepad.id}`
+	);
+});
 
 setSize();
 init();
 frame(0);
+
+function setSize() {
+	pixelDensity = window.devicePixelRatio;
+	width = window.innerWidth * pixelDensity;
+	height = window.innerHeight * pixelDensity;
+	canvas.width = width;
+	canvas.height = height;
+	screenToMap.width = width / mapWidth;
+	screenToMap.height = height / mapHeight;
+	gameEvent.canvasWidth = width;
+	gameEvent.canvasHeight = height;
+
+	// Update action bar position when window is resized
+	actionBar.updatePosition();
+}
+window.addEventListener("resize", setSize);

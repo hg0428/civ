@@ -1,122 +1,185 @@
 import { GameEvent, InteractiveElement } from "./interactive.ts";
-import { Circle, Rectangle, Thing, Vector2, draw, Drawable } from "./shapes.ts";
-import { People } from "./people.ts";
-
-export type ActionType = 'idle' | 'move' | 'work' | 'fight';
+import { Circle, Rectangle, Vector2 } from "./shapes.ts";
+import { Person } from "./people.ts";
+import { Structure } from "./structure.ts";
+import { setSelectedAction } from "./gameState.ts";
 
 export interface Action {
-    type: ActionType;
-    target?: Vector2;
-    effectiveness?: number;
+	name: string;
+	description: string;
+	icon?: string;
+	execute: () => void;
+	available: () => boolean;
 }
 
-export class ActionButton extends InteractiveElement<Circle> {
-    action: ActionType;
-    tooltip: string;
+export class ActionBar {
+	private position: Vector2;
+	private size: Vector2;
+	private actions: Action[] = [];
+	private visible: boolean = false;
+	private selectedEntity: Person | Structure | null = null;
+	private actionButtons: InteractiveElement<Rectangle>[] = [];
 
-    constructor(position: Vector2, action: ActionType) {
-        super({
-            position,
-            shape: new Circle(30),
-            strokeStyle: 'black',
-            fillStyle: '#4a90e2',
-            strokeWidth: 2,
-            isMapElement: false
-        });
-        this.action = action;
-        this.tooltip = action.charAt(0).toUpperCase() + action.slice(1);
-    }
-    draw(ctx: CanvasRenderingContext2D, elapsed: number, gameEvent: GameEvent) {
-        super.draw(ctx, elapsed, gameEvent);
-        
-        // Draw action icon/text
-        ctx.fillStyle = 'white';
-        ctx.font = '20px Sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(this.action[0].toUpperCase(), this.position.x, this.position.y);
+	constructor() {
+		this.position = { x: 0, y: 0 };
+		this.size = { x: 300, y: 100 };
+		this.updatePosition();
+	}
 
-        // Draw tooltip on hover
-        if (this.hovering) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-            ctx.fillRect(
-                this.position.x - 40,
-                this.position.y - 60,
-                80,
-                30
-            );
-            ctx.fillStyle = 'white';
-            ctx.font = '16px Sans-serif';
-            ctx.fillText(this.tooltip, this.position.x, this.position.y - 45);
-        }
-    }
+	updatePosition() {
+		// Position in bottom left corner
+		const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+		if (canvas) {
+			this.position = {
+				x: 20,
+				y: canvas.height - this.size.y - 20,
+			};
+		}
+	}
+
+	setSelectedEntity(entity: Person | Structure | null) {
+		this.selectedEntity = entity;
+		this.updateActions();
+		this.visible = entity !== null;
+	}
+
+	getSelectedEntity(): Person | Structure | null {
+		return this.selectedEntity;
+	}
+
+	private updateActions() {
+		this.actions = [];
+		this.clearActionButtons();
+
+		if (!this.selectedEntity) return;
+
+		if (this.selectedEntity instanceof Person) {
+			const person = this.selectedEntity;
+
+			// Move action
+			this.actions.push({
+				name: "Move",
+				description: "Move this person to a new location",
+				execute: () => {
+					// Set the selected action to "Move" using our shared state
+					setSelectedAction("Move");
+					console.log("Move action selected");
+					// The actual movement will be handled in the click event
+				},
+				available: () => true,
+			});
+
+			// Work action
+			this.actions.push({
+				name: "Work",
+				description: "Assign this person to work",
+				execute: () => {
+					console.log("Work action selected");
+					// Implementation will be expanded
+				},
+				available: () => true,
+			});
+
+			// Build action
+			this.actions.push({
+				name: "Build",
+				description: "Build a structure",
+				execute: () => {
+					console.log("Build action selected");
+					// Implementation will be expanded
+				},
+				available: () => true,
+			});
+		} else if (this.selectedEntity instanceof Structure) {
+			// Structure-specific actions
+			this.actions.push({
+				name: "Repair",
+				description: "Repair this structure",
+				execute: () => {
+					console.log("Repair action selected");
+				},
+				available: () =>
+					this.selectedEntity instanceof Structure &&
+					this.selectedEntity.integrity < 1,
+			});
+		}
+
+		this.createActionButtons();
+	}
+
+	private createActionButtons() {
+		const buttonSize = 60;
+		const padding = 10;
+
+		this.actions.forEach((action, index) => {
+			if (action.available()) {
+				const buttonX =
+					this.position.x + padding + index * (buttonSize + padding);
+				const buttonY = this.position.y + padding;
+
+				const button = new InteractiveElement<Rectangle>({
+					shape: new Rectangle(buttonSize, buttonSize),
+					position: { x: buttonX + buttonSize/2, y: buttonY + buttonSize/2 },
+					fillStyle: "rgba(50, 150, 200, 0.8)",
+					strokeStyle: "white",
+				});
+
+				button.addEventListener("click", (event: GameEvent) => {
+					action.execute();
+				});
+
+				this.actionButtons.push(button);
+			}
+		});
+	}
+
+	private clearActionButtons() {
+		this.actionButtons.forEach((button) => button.remove());
+		this.actionButtons = [];
+	}
+
+	draw(ctx: CanvasRenderingContext2D) {
+		if (!this.visible) return;
+
+		// Draw background
+		ctx.fillStyle = "rgba(30, 35, 50, 0.8)";
+		ctx.fillRect(this.position.x, this.position.y, this.size.x, this.size.y);
+		ctx.strokeStyle = "rgba(100, 150, 200, 0.7)";
+		ctx.lineWidth = 2;
+		ctx.strokeRect(this.position.x, this.position.y, this.size.x, this.size.y);
+
+		// Draw action buttons (visual representation)
+		const buttonSize = 60;
+		const padding = 10;
+
+		this.actions.forEach((action, index) => {
+			if (action.available()) {
+				const buttonX =
+					this.position.x + padding + index * (buttonSize + padding);
+				const buttonY = this.position.y + padding;
+
+				// Draw button background
+				ctx.fillStyle = "rgba(50, 100, 150, 0.8)";
+				ctx.fillRect(buttonX, buttonY, buttonSize, buttonSize);
+				
+				// Draw button border
+				ctx.strokeStyle = "rgba(150, 200, 255, 0.9)";
+				ctx.lineWidth = 2;
+				ctx.strokeRect(buttonX, buttonY, buttonSize, buttonSize);
+
+				// Draw button text
+				ctx.fillStyle = "white";
+				ctx.font = "bold 16px Arial";
+				ctx.textAlign = "center";
+				ctx.textBaseline = "middle";
+				ctx.fillText(
+					action.name,
+					buttonX + buttonSize / 2,
+					buttonY + buttonSize / 2
+				);
+			}
+		});
+	}
 }
 
-export class ActionBar implements Drawable {
-    position: Vector2;
-    width: number;
-    height: number;
-    actions: ActionButton[] = [];
-    selectedGroup?: People;
-    background: Thing<Rectangle>;
-
-    constructor(canvasWidth: number, canvasHeight: number) {
-        this.width = Math.min(400, canvasWidth - 40);
-        this.height = 80;
-        this.position = {
-            x: canvasWidth / 2,
-            y: canvasHeight - this.height / 2 - 20
-        };
-
-        // Create background
-        this.background = new Thing({
-            position: this.position,
-            shape: new Rectangle(this.width, this.height),
-            fillStyle: 'rgba(50, 50, 50, 0.9)',
-            strokeStyle: 'rgba(255, 255, 255, 0.3)',
-            strokeWidth: 2
-        });
-
-        // Create action buttons
-        const actions: ActionType[] = ['move', 'work', 'fight'];
-        const buttonSpacing = 80;
-        const startX = this.position.x - ((actions.length - 1) * buttonSpacing) / 2;
-
-        actions.forEach((action, index) => {
-            const button = new ActionButton(
-                {
-                    x: startX + index * buttonSpacing,
-                    y: this.position.y
-                },
-                action
-            );
-            this.actions.push(button);
-        });
-    }
-
-    setSelectedGroup(group: People | undefined) {
-        this.selectedGroup = group;
-        // TODO: Update button states based on what actions are available
-    }
-
-    draw(ctx: CanvasRenderingContext2D, elapsed: number, gameEvent: GameEvent) {
-        console.log("draw action button");
-        if (!this.selectedGroup) return;
-
-        // Draw background
-        this.background.draw(ctx, elapsed, gameEvent);
-
-        // Draw group info
-        ctx.fillStyle = 'white';
-        ctx.font = '18px Sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(
-            `Group Size: ${this.selectedGroup.quantity}`,
-            this.position.x - this.width/2 + 20,
-            this.position.y - 20
-        );
-
-        // Draw action buttons
-        this.actions.forEach(button => button.draw(ctx, elapsed, gameEvent));
-    }
-}
+export const actionBar = new ActionBar();

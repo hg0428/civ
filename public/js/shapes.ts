@@ -303,4 +303,3 @@ export function getDistance3D(a: Vector3, b: Vector3) {
 // 	position: new Vector2(1, 1),
 // 	shape: new Square(2),
 // };
-// console.log("isInBounds:", isInBounds({ x: 1, y: 1 }, t));
