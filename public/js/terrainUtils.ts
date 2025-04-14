@@ -93,15 +93,16 @@ export function calculateSlope(pointA: Vector2, pointB: Vector2): number {
 	const heightB = getTerrainHeight(pointB);
 
 	// Calculate horizontal distance
-	const distance = Math.sqrt(
-		Math.pow(pointB.x - pointA.x, 2) + Math.pow(pointB.y - pointA.y, 2)
-	);
+	const distance =
+		Math.sqrt(
+			Math.pow(pointB.x - pointA.x, 2) + Math.pow(pointB.y - pointA.y, 2)
+		) * TerrainConfig.PIXELS_TO_METERS;
 
 	// Avoid division by zero
 	if (distance === 0) return 0;
 
 	// Calculate slope (rise over run)
-	const slope = (heightB - heightA) / distance;
+	const slope = ((heightB - heightA) * TerrainConfig.HEIGHT_RANGE) / distance;
 
 	if (DebugConfig.SHOW_TERRAIN_LOGS && Math.abs(slope) > 0.2) {
 		console.log(

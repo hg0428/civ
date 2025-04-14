@@ -12,19 +12,20 @@ interface PathNode {
 	position: Vector2;
 	gCost: number; // Cost from start to this node
 	hCost: number; // Heuristic cost from this node to end
+	fCost: number; // Total cost (gCost + hCost)
 	parent: PathNode | null; // Reference to parent node for path reconstruction
 }
 
 // Get the fCost (total cost) of a node
 function getFCost(node: PathNode): number {
-	return node.gCost + node.hCost;
+	return node.fCost;
 }
 
-// Calculate heuristic cost (straight-line distance)
 function calculateHeuristic(a: Vector2, b: Vector2): number {
+	// Optimized octile distance heuristic
 	const dx = Math.abs(a.x - b.x);
 	const dy = Math.abs(a.y - b.y);
-	return Math.sqrt(dx * dx + dy * dy);
+	return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy);
 }
 
 // Check if two positions are equal
@@ -43,30 +44,6 @@ function findNodeByPosition(
 		}
 	}
 	return null;
-}
-
-// Get neighbors for a given position
-function getNeighbors(position: Vector2): Vector2[] {
-	const neighbors: Vector2[] = [];
-	// 8 neighboring positions (including diagonals)
-	for (let x = -1; x <= 1; x++) {
-		for (let y = -1; y <= 1; y++) {
-			// Skip the current position
-			if (x === 0 && y === 0) continue;
-
-			// Create neighbor position
-			const neighborPos: Vector2 = {
-				x: position.x + x,
-				y: position.y + y,
-			};
-
-			// Check if the neighbor is passable terrain
-			if (isPassable(neighborPos)) {
-				neighbors.push(neighborPos);
-			}
-		}
-	}
-	return neighbors;
 }
 
 // Calculate the movement cost between two adjacent positions
@@ -114,23 +91,13 @@ export function findPath(
 		Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
 	);
 
-	if (directDistance < PathfindingConfig.CLOSE_DISTANCE) {
-		if (DebugConfig.SHOW_PATH_LOGS) {
-			console.log("Positions are close, returning direct path");
-		}
-		return [{ ...start }, { ...end }];
-	}
-
 	// Round start and end to grid positions for A* calculation
 	const startPos: Vector2 = { x: Math.round(start.x), y: Math.round(start.y) };
 	const endPos: Vector2 = { x: Math.round(end.x), y: Math.round(end.y) };
 
 	// If start and end are the same position, return simple path
 	if (positionsEqual(startPos, endPos)) {
-		if (DebugConfig.SHOW_PATH_LOGS) {
-			console.log("Start and end positions are the same");
-		}
-		return [{ ...startPos }];
+		return [{ x: startPos.x, y: startPos.y }];
 	}
 
 	// Check if start or end *grid positions* are impassable (using the positions A* works with)
@@ -145,74 +112,113 @@ export function findPath(
 	}
 
 	// Data structures for A* algorithm
-	// Using Map instead of array for faster lookups
-	const openSet: Map<string, PathNode> = new Map();
-	const closedSet: Map<string, PathNode> = new Map();
+	const openSet: PathNode[] = [];
+	const closedSet: Set<string> = new Set();
+	const nodeMap: Map<string, PathNode> = new Map();
 
 	// Helper function to get node key for map
 	const getNodeKey = (pos: Vector2): string => `${pos.x},${pos.y}`;
 
+	// Pre-compute neighbor offsets for faster neighbor generation
+	const neighborOffsets = [
+		{ x: 0, y: 1 }, // North
+		{ x: 1, y: 0 }, // East
+		{ x: 0, y: -1 }, // South
+		{ x: -1, y: 0 }, // West
+		{ x: 1, y: 1 }, // Northeast
+		{ x: 1, y: -1 }, // Southeast
+		{ x: -1, y: -1 }, // Southwest
+		{ x: -1, y: 1 }, // Northwest
+	];
+
+	// Sort neighbor offsets to prioritize those pointing toward the target
+	const directionToTarget = {
+		x: endPos.x - startPos.x,
+		y: endPos.y - startPos.y,
+	};
+	const directionMagnitude = Math.sqrt(
+		directionToTarget.x * directionToTarget.x +
+			directionToTarget.y * directionToTarget.y
+	);
+
+	if (directionMagnitude > 0) {
+		// Normalize direction vector
+		directionToTarget.x /= directionMagnitude;
+		directionToTarget.y /= directionMagnitude;
+
+		// Sort offsets by dot product (cosine similarity) with target direction
+		neighborOffsets.sort((a, b) => {
+			const dotA = a.x * directionToTarget.x + a.y * directionToTarget.y;
+			const dotB = b.x * directionToTarget.x + b.y * directionToTarget.y;
+			return dotB - dotA; // Higher dot product first (more aligned with target)
+		});
+	}
+
 	// Create start node and add to open set
+	const hCost = calculateHeuristic(startPos, endPos);
 	const startNode: PathNode = {
-		position: { ...startPos },
+		position: { x: startPos.x, y: startPos.y },
 		gCost: 0,
-		hCost: calculateHeuristic(startPos, endPos),
+		hCost,
+		fCost: hCost,
 		parent: null,
 	};
-	openSet.set(getNodeKey(startPos), startNode);
+
+	openSet.push(startNode);
+	nodeMap.set(getNodeKey(startPos), startNode);
 
 	// Main A* algorithm loop
 	let iterations = 0;
-	const maxIterations = searchDistanceLimit * 4; // Reasonable limit to prevent infinite loops
+	const maxIterations = searchDistanceLimit * 8;
 
 	// Continue until open set is empty or max iterations reached
-	while (openSet.size > 0 && iterations < maxIterations) {
+	while (openSet.length > 0 && iterations < maxIterations) {
 		iterations++;
 
-		// Get node with lowest f-cost from open set
-		let currentNode: PathNode | null = null;
-		let lowestFCost = Infinity;
-		let currentKey = "";
-
-		// Find the node with the lowest f-cost
-		for (const [key, node] of Array.from(openSet.entries())) {
-			const fCost = node.gCost + node.hCost;
-			if (fCost < lowestFCost) {
-				lowestFCost = fCost;
-				currentNode = node;
-				currentKey = key;
+		// Find the node with the lowest f-cost in the open set
+		// This is O(n) but for small maps it's faster than maintaining a complex data structure
+		let lowestIndex = 0;
+		for (let i = 1; i < openSet.length; i++) {
+			if (openSet[i].fCost < openSet[lowestIndex].fCost) {
+				lowestIndex = i;
 			}
 		}
 
-		if (!currentNode) break; // Should never happen, but just in case
+		// Get the current node and remove it from the open set
+		const currentNode = openSet[lowestIndex];
+		openSet.splice(lowestIndex, 1);
 
-		// Remove current node from open set
-		openSet.delete(currentKey);
+		const currentKey = getNodeKey(currentNode.position);
 
 		// Add to closed set
-		closedSet.set(currentKey, currentNode);
+		closedSet.add(currentKey);
 
 		// Check if we've reached the target
 		if (positionsEqual(currentNode.position, endPos)) {
 			if (DebugConfig.SHOW_PATH_LOGS) {
 				console.log(`Path found after ${iterations} iterations`);
 			}
-			// Reconstruct the path
+
+			// Reconstruct the path (more efficiently)
 			const path: Vector2[] = [];
 			let current: PathNode | null = currentNode;
 
+			// Build path in reverse order (more efficient than unshift)
 			while (current !== null) {
-				path.unshift({ ...current.position });
+				path.push({ x: current.position.x, y: current.position.y });
 				current = current.parent;
 			}
 
+			// Reverse once at the end (more efficient than repeated unshifts)
+			path.reverse();
+
 			// Add the exact start and end positions to create a smoother path
 			if (path.length > 0) {
-				path[0] = { ...start };
-				path[path.length - 1] = { ...end };
+				path[0] = { x: start.x, y: start.y };
+				path[path.length - 1] = { x: end.x, y: end.y };
 			}
 
-			// Temporarily disable smoothing for debugging
+			// Apply path smoothing if enabled
 			if (PathfindingConfig.PATH_SMOOTHING && path.length > 2) {
 				return smoothPath(path);
 			}
@@ -220,66 +226,84 @@ export function findPath(
 			return path;
 		}
 
-		// Process all 8 neighboring positions
-		for (let dx = -1; dx <= 1; dx++) {
-			for (let dy = -1; dy <= 1; dy++) {
-				if (dx === 0 && dy === 0) continue; // Skip current position
+		// Process all 8 neighboring positions using pre-computed offsets
+		for (const offset of neighborOffsets) {
+			// Create neighbor position
+			const neighbor: Vector2 = {
+				x: currentNode.position.x + offset.x,
+				y: currentNode.position.y + offset.y,
+			};
+			const neighborKey = getNodeKey(neighbor);
 
-				// Create neighbor position
-				const neighbor: Vector2 = {
-					x: currentNode.position.x + dx,
-					y: currentNode.position.y + dy,
+			// Skip if neighbor is in closed set
+			if (closedSet.has(neighborKey)) continue;
+
+			// Skip if neighbor is not passable (e.g., water)
+			if (!isPassable(neighbor)) continue;
+
+			// Calculate movement cost (diagonal vs. cardinal direction)
+			const isDiagonal = offset.x !== 0 && offset.y !== 0;
+			if (isDiagonal) {
+				const cardinal1 = {
+					x: currentNode.position.x + offset.x,
+					y: currentNode.position.y,
 				};
-				const neighborKey = getNodeKey(neighbor);
+				const cardinal2 = {
+					x: currentNode.position.x,
+					y: currentNode.position.y + offset.y,
+				};
+				if (!isPassable(cardinal1) || !isPassable(cardinal2)) continue;
+			}
+			let movementCost = isDiagonal ? 1.41421356 : 1.0; // √2 for diagonals
 
-				// Skip if neighbor is in closed set
-				if (closedSet.has(neighborKey)) continue;
+			// Consider terrain for cost calculation
+			const slope = calculateSlope(currentNode.position, neighbor);
+			const speedModifier = getSpeedModifier(slope);
 
-				// Skip if neighbor is not passable (e.g., water, mountains)
-				if (!isPassable(neighbor)) continue;
+			// Skip if impassable due to slope
+			if (speedModifier <= PathfindingConfig.ERROR_TOLERANCE) {
+				continue;
+			}
 
-				// Calculate movement cost (diagonal vs. cardinal direction)
-				const isDiagonal = dx !== 0 && dy !== 0;
-				let movementCost = isDiagonal ? 1.414 : 1.0; // √2 for diagonals
+			// Adjust cost based on terrain
+			movementCost = movementCost / speedModifier; // Higher cost for difficult terrain
 
-				// Consider terrain for cost calculation
-				const slope = calculateSlope(currentNode.position, neighbor);
-				const speedModifier = getSpeedModifier(slope);
+			// Calculate total cost to this neighbor
+			const gCost = currentNode.gCost + movementCost;
 
-				// Skip if impassable due to slope
-				if (speedModifier <= 0) {
-					continue;
-				}
+			// Get existing node from the map
+			const existingNode = nodeMap.get(neighborKey);
 
-				// Adjust cost based on terrain
-				movementCost = movementCost / speedModifier; // Higher cost for difficult terrain
+			if (!existingNode) {
+				// Create new node and add to open set
+				const hCost = calculateHeuristic(neighbor, endPos);
+				const neighborNode: PathNode = {
+					position: { x: neighbor.x, y: neighbor.y },
+					gCost,
+					hCost,
+					fCost: gCost + hCost,
+					parent: currentNode,
+				};
+				openSet.push(neighborNode);
+				nodeMap.set(neighborKey, neighborNode);
+			} else if (gCost < existingNode.gCost) {
+				// Update existing node if new path is better
+				existingNode.gCost = gCost;
+				existingNode.fCost = gCost + existingNode.hCost;
+				existingNode.parent = currentNode;
 
-				// Calculate total cost to this neighbor
-				const gCost = currentNode.gCost + movementCost;
-
-				// Check if neighbor is in open set
-				const existingNode = openSet.get(neighborKey);
-
-				if (!existingNode) {
-					// Add new node to open set
-					const neighborNode: PathNode = {
-						position: { ...neighbor },
-						gCost,
-						hCost: calculateHeuristic(neighbor, endPos),
-						parent: currentNode,
-					};
-					openSet.set(neighborKey, neighborNode);
-				} else if (gCost < existingNode.gCost) {
-					// Update existing node if new path is better
-					existingNode.gCost = gCost;
-					existingNode.parent = currentNode;
+				// If the node is not in the open set, add it back
+				if (!openSet.includes(existingNode)) {
+					openSet.push(existingNode);
 				}
 			}
 		}
 	}
 
 	// If we've reached here, no path was found
-	alert("No path found or search limit exceeded");
+	if (DebugConfig.SHOW_PATH_LOGS) {
+		console.warn(`No path found after ${iterations} iterations`);
+	}
 	return null;
 }
 
@@ -343,14 +367,16 @@ function hasLineOfSight(start: Vector2, end: Vector2): boolean {
 	// Increase sampling density: Check approx every 0.5 units distance + ensure min steps
 	const steps = Math.max(3, Math.ceil(distance * 2)); // Min 3 steps ensures at least 2 intermediate checks
 
+	// Reuse point objects to reduce garbage collection
+	const checkPoint: Vector2 = { x: 0, y: 0 };
+	const prevPoint: Vector2 = { x: 0, y: 0 };
+
 	// Check points along the line (strictly between start and end)
 	for (let i = 1; i < steps; i++) {
 		// Loop goes up to steps-1
 		const t = i / steps;
-		const checkPoint: Vector2 = {
-			x: start.x + dx * t,
-			y: start.y + dy * t,
-		};
+		checkPoint.x = start.x + dx * t;
+		checkPoint.y = start.y + dy * t;
 
 		// 1. Check if intermediate point is passable (water)
 		if (!isPassable(checkPoint)) {
@@ -367,10 +393,8 @@ function hasLineOfSight(start: Vector2, end: Vector2): boolean {
 
 		// 2. Check slope between this point and the previous one
 		const prevT = (i - 1) / steps; // t for the previous point (or start if i=1)
-		const prevPoint: Vector2 = {
-			x: start.x + dx * prevT,
-			y: start.y + dy * prevT,
-		};
+		prevPoint.x = start.x + dx * prevT;
+		prevPoint.y = start.y + dy * prevT;
 
 		const slope = calculateSlope(prevPoint, checkPoint);
 		const speedModifier = getSpeedModifier(slope);
@@ -396,5 +420,3 @@ function hasLineOfSight(start: Vector2, end: Vector2): boolean {
 	// If all intermediate points and slopes are fine, line of sight is clear.
 	return true;
 }
-
-// Function to reconstruct path from cameFrom map

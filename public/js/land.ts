@@ -16,7 +16,7 @@ interface GenerationOptions {
 function generatePerlinNoise({
 	width = 157,
 	height = 100,
-	OCTAVES = 10,
+	OCTAVES = 7,
 	LACUNARITY = 2,
 	PERSISTENCE = 0.5,
 	max = 1,

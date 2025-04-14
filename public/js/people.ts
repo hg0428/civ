@@ -6,6 +6,7 @@ import {
 } from "./terrainUtils.ts";
 import { findPath, smoothPath } from "./pathfinding.ts";
 import { AcceptsEvents, EventHandler, GameEvent } from "./interactive.ts";
+import { MovementConfig, PathfindingConfig } from "./config.ts";
 
 interface Physical {
 	height: number;
@@ -71,6 +72,7 @@ class StockUnit {
 interface PersonEvent extends GameEvent {
 	targetPosition: Vector2 | null;
 }
+const MAX_RETRIES = 5;
 class Person implements AcceptsEvents {
 	physical: Physical;
 	mental: Mental;
@@ -84,6 +86,8 @@ class Person implements AcceptsEvents {
 	possessions: StockUnit[];
 	skills: Map<Skill, number>;
 	listeners: { [key: string]: EventHandler[] } = {};
+	retries: number = 0;
+	overshotFactor: number = 0;
 	constructor(
 		physical: Physical,
 		mental: Mental,
@@ -137,15 +141,16 @@ class Person implements AcceptsEvents {
 		const dx = currentWaypoint.x - this.position.x;
 		const dy = currentWaypoint.y - this.position.y;
 		const distance = Math.sqrt(dx * dx + dy * dy);
-
+		const acceptableError = 1;
 		// If reached waypoint, move to next or finish
-		if (distance <= 1) {
+		if (distance < acceptableError) {
 			this.currentPathIndex++;
 			if (this.currentPathIndex >= this.path.length) {
 				// Reached final destination
 				console.log("Reached final destination");
 				this.position = { ...this.targetPosition };
 				this.isMoving = false;
+				this.retries = 0;
 				this.targetPosition = null;
 				this.path = [];
 				this.currentPathIndex = 0;
@@ -158,56 +163,100 @@ class Person implements AcceptsEvents {
 			}
 			return false; // Continue to next waypoint
 		}
+		const physicalSpeed = this.physical.speed;
+		const overshotFactor = this.overshotFactor;
+		const position = this.position;
+		function calculateMovement(speed: number): Vector2 {
+			const totalSpeed =
+				physicalSpeed * MovementConfig.BASE_SPEED * (elapsed / 1000) * speed +
+				overshotFactor;
+			// Normalize direction vector and apply movement
+			const dirX = dx / distance;
+			const dirY = dy / distance;
 
-		// Calculate slope and get speed modifier
-		const slope = calculateSlope(this.position, currentWaypoint);
-		const speedModifier = getSpeedModifier(slope);
-
-		// Check if the next position is impassable due to slope
-		/*
-		if (speedModifier <= 0) {
-			// For now, just stop moving - pathfinding will handle this later
-			console.log("Path blocked by impassable terrain (too steep)");
-			this.isMoving = false;
-			this.targetPosition = null;
-			this.path = [];
-			this.currentPathIndex = 0;
-			return true;
+			// Calculate new position
+			const newX = position.x + dirX * totalSpeed;
+			const newY = position.y + dirY * totalSpeed;
+			return { x: newX, y: newY };
 		}
-		*/
+		let slope: number, speedModifier: number;
+		let newPos: Vector2 = calculateMovement(1);
+		let change: number = 1;
+		while (change >= PathfindingConfig.ERROR_TOLERANCE) {
+			slope = calculateSlope(this.position, newPos);
+			let newSpeedModifier = getSpeedModifier(slope);
+			change = Math.abs(newSpeedModifier - speedModifier);
+			speedModifier = Math.max(
+				newSpeedModifier,
+				PathfindingConfig.ERROR_TOLERANCE
+			);
 
-		// Calculate movement speed based on person's speed attribute and terrain
-		const baseSpeed = 50; // Base movement speed
-		const speedMultiplier = this.physical.speed / 5; // Normalize speed (0-10 range)
-		const movementSpeed =
-			baseSpeed * speedMultiplier * speedModifier * (elapsed / 1000); // Units per frame
+			newPos = calculateMovement(speedModifier);
+		}
+		this.overshotFactor = 0;
+		const { x: newX, y: newY } = newPos;
 
-		// Normalize direction vector and apply movement
-		const dirX = dx / distance;
-		const dirY = dy / distance;
+		// If we overshot the waypoint (i.e. we were on one side of it, now we are on the other), set it to the waypoint
+		// Check if we overshot the waypoint
+		const passedX =
+			(this.position.x < currentWaypoint.x && newX > currentWaypoint.x) ||
+			(this.position.x > currentWaypoint.x && newX < currentWaypoint.x);
+		const passedY =
+			(this.position.y < currentWaypoint.y && newY > currentWaypoint.y) ||
+			(this.position.y > currentWaypoint.y && newY < currentWaypoint.y);
 
-		// Calculate new position
-		const newX = this.position.x + dirX * movementSpeed;
-		const newY = this.position.y + dirY * movementSpeed;
+		// Calculate overshoot factor (how many times we went past the target)
+		const overshootX = passedX
+			? Math.abs(
+					(newX - currentWaypoint.x) / (currentWaypoint.x - this.position.x)
+			  )
+			: 0;
+		const overshootY = passedY
+			? Math.abs(
+					(newY - currentWaypoint.y) / (currentWaypoint.y - this.position.y)
+			  )
+			: 0;
+		this.overshotFactor = Math.max(overshootX, overshootY);
 
-		// Check if new position is passable
-		/*
-		if (isPassable({ x: newX, y: newY })) {
+		if (passedX || passedY) {
+			// We overshot, snap to the waypoint
+			this.position.x = currentWaypoint.x;
+			this.position.y = currentWaypoint.y;
+		} else {
+			// Normal movement
 			this.position.x = newX;
 			this.position.y = newY;
-		} else {
-			// Position is impassable (water, etc.)
-			console.log("Path blocked by impassable terrain");
-			this.isMoving = false;
-			this.targetPosition = null;
-			this.path = [];
-			this.currentPathIndex = 0;
-			return true;
 		}
-		*/
-		// Trust the pathfinder and update position directly
-		this.position.x = newX;
-		this.position.y = newY;
+
+		// // Check if new position is passable
+		// if (isPassable({ x: newX, y: newY }) && speedModifier > 0) {
+		// 	this.position.x = newX;
+		// 	this.position.y = newY;
+		// } else if (this.retries < MAX_RETRIES) {
+		// 	// Position is impassable (water, etc.)
+		// 	console.log("Path blocked by impassable terrain");
+		// 	// Find a path to the next waypoint and insert it into the path
+		// 	const nextWaypoint = this.path[this.currentPathIndex + 1];
+		// 	const newPath = findPath(this.position, nextWaypoint);
+		// 	if (newPath) {
+		// 		this.path.splice(this.currentPathIndex + 1, 0, ...newPath);
+		// 	}
+		// 	this.retries++;
+		// } else {
+		// 	// Max retries reached
+		// 	console.log("Max retries reached, giving up");
+		// 	this.isMoving = false;
+		// 	this.targetPosition = null;
+		// 	this.path = [];
+		// 	this.currentPathIndex = 0;
+		// 	this.retries = 0;
+		// 	this.dispatchEvent({
+		// 		...gameEvent,
+		// 		type: "failed",
+		// 		targetPosition: this.targetPosition,
+		// 	});
+		// 	return true;
+		// }
 
 		return false; // Still moving
 	}

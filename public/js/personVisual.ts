@@ -97,25 +97,9 @@ export class PersonVisual extends InteractiveElement<Circle> {
 				}
 			}
 
-			ctx.strokeStyle = "rgba(255, 255, 0, 0.3)";
-			ctx.lineWidth = 1;
+			ctx.strokeStyle = "rgba(255, 255, 0, 0.4)";
+			ctx.lineWidth = 0.5;
 			ctx.stroke();
-
-			// Draw waypoints
-			for (
-				let i = this.person.currentPathIndex;
-				i < this.person.path.length;
-				i++
-			) {
-				const waypoint = this.person.path[i];
-				ctx.beginPath();
-				ctx.arc(waypoint.x, waypoint.y, 1, 0, Math.PI * 2);
-				ctx.fillStyle =
-					i === this.person.currentPathIndex
-						? "yellow"
-						: "rgba(255, 255, 0, 0.5)";
-				ctx.fill();
-			}
 		}
 
 		// Call the parent draw method

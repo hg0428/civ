@@ -375,21 +375,22 @@ async function init() {
 	console.log("Player nation created:", playerNation);
 
 	// Create initial people for the player - increased from 5 to 10 for better testing
-	const initialPeopleCount = 10;
+	const initialPeopleCount = 15;
 
 	console.log(`Creating ${initialPeopleCount} people...`);
 
 	// Create people in a more organized pattern rather than completely random
 	// This will place them in a semi-circle formation for easier selection
 	for (let i = 0; i < initialPeopleCount; i++) {
-		// Calculate position in a semi-circle pattern
-		const angle = (Math.PI * i) / (initialPeopleCount - 1);
-		const radius = mapWidth * 0.2; // 20% of map width
-		const centerX = mapWidth * 0.5;
-		const centerY = mapHeight * 0.7;
-
-		const x = centerX + Math.cos(angle) * radius;
-		const y = centerY + Math.sin(angle) * radius;
+		let x: number = 0,
+			y: number = 0;
+		do {
+			x = Math.random() * mapWidth;
+			y = Math.random() * mapHeight;
+		} while (
+			getTerrainHeight({ x, y }) <= TerrainConfig.WATER_THRESHOLD ||
+			getTerrainHeight({ x, y }) >= TerrainConfig.MOUNTAIN_THRESHOLD
+		);
 
 		const position = { x, y };
 

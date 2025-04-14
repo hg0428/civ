@@ -69,7 +69,10 @@ class Structure {
 									// End interval and remove structure when integrity drops to zero
 									clearInterval(intervalId);
 								}
-								const increasePercent = Math.min(0.1, this.integrity);
+								const increasePercent = Math.min(
+									1 / this.type.durability,
+									this.integrity
+								);
 								this.integrity -= increasePercent;
 								for (let material of this.type.materials) {
 									if (
@@ -92,7 +95,7 @@ class Structure {
 									// End interval and remove structure when integrity drops to zero
 									clearInterval(intervalId);
 								}
-							}, 1000);
+							}, 100);
 						},
 						{ once: true }
 					);
