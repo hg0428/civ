@@ -1,8 +1,28 @@
 import { Menu } from "./menu";
 import { Circle, draw, Drawable, Shape, Thing, Vector2 } from "./shapes.ts";
 
+export interface AcceptsEvents {
+	/**
+	 * The listeners of the element
+	 */
+	listeners: { [key: string]: EventHandler[] };
+	addEventListener(
+		type: string,
+		callback: EventHandler | null,
+		options?: AddEventListenerOptions | boolean
+	): void;
+	removeEventListener(
+		type: string,
+		callback: EventHandler | null,
+		options?: EventListenerOptions | boolean
+	): void;
+	dispatchEvent(event: GameEvent): boolean;
+}
 export type EventHandler = (event: GameEvent) => void;
-export class InteractiveElement<shape extends Shape> extends Thing<shape> {
+export class InteractiveElement<shape extends Shape>
+	extends Thing<shape>
+	implements AcceptsEvents
+{
 	/**
 	 * Is the element currently being hovered
 	 */

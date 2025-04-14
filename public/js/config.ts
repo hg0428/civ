@@ -6,25 +6,20 @@
 export const TerrainConfig = {
 	// Water threshold (height below this is considered water)
 	WATER_THRESHOLD: 0.35,
+	MOUNTAIN_THRESHOLD: 0.75,
 
-	// Slope thresholds
-	MAX_UPHILL_SLOPE: 0.6, // Slopes above this are too steep to climb
-	GRADUAL_UPHILL_SLOPE: 0.3, // Gradual uphill starts reducing speed
+	UPHILL_MAX_SLOPE: 0.5, // 50% grade is max walkable
+	UPHILL_MIN_SPEED: 0.1, // 10% of normal speed on steepest hill
 
-	// Downhill thresholds
-	MAX_DOWNHILL_SLOPE: 0.7, // Slopes steeper than this are cliffs (impassable)
-	GENTLE_DOWNHILL_SLOPE: 0.2, // Slopes below this get a speed boost
-	MODERATE_DOWNHILL_SLOPE: 0.4, // Normal speed downhill
-
-	// Speed modifiers
-	MAX_UPHILL_PENALTY: 0.5, // Minimum speed when climbing
-	MAX_DOWNHILL_BOOST: 1.5, // Maximum speed boost on gentle downhills
-	STEEP_DOWNHILL_PENALTY: 0.7, // Speed penalty for steep downhills
+	DOWNHILL_BOOST_LIMIT: 0.1, // ~10% grade = max boost
+	DOWNHILL_MAX_SLOPE: 0.4, // Beyond this, speed declines
+	DOWNHILL_MAX_BOOST: 1.5, // 50% boost on gentle slope
+	DOWNHILL_MIN_SPEED: 0.15, // 15% of normal on steep descent
 };
 
 // Pathfinding configuration
 export const PathfindingConfig = {
-	DEFAULT_SEARCH_LIMIT: 100000, // Maximum search distance for A* pathfinding
+	DEFAULT_SEARCH_LIMIT: 500000, // Maximum search distance for A* pathfinding
 	CLOSE_DISTANCE: 0, // Distance below which a direct path is used
 	PATH_SMOOTHING: true, // Whether to apply path smoothing
 };

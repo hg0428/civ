@@ -69,13 +69,14 @@ export class ActionBar {
 				available: () => true,
 			});
 
-			// Work action
+			// Mine action
 			this.actions.push({
-				name: "Work",
-				description: "Assign this person to work",
+				name: "Mine",
+				description: "Assign this person to mine",
 				execute: () => {
-					console.log("Work action selected");
+					console.log("Mine action selected");
 					// Implementation will be expanded
+					setSelectedAction("Mine");
 				},
 				available: () => true,
 			});
@@ -119,7 +120,10 @@ export class ActionBar {
 
 				const button = new InteractiveElement<Rectangle>({
 					shape: new Rectangle(buttonSize, buttonSize),
-					position: { x: buttonX + buttonSize/2, y: buttonY + buttonSize/2 },
+					position: {
+						x: buttonX + buttonSize / 2,
+						y: buttonY + buttonSize / 2,
+					},
 					fillStyle: "rgba(50, 150, 200, 0.8)",
 					strokeStyle: "white",
 				});
@@ -161,7 +165,7 @@ export class ActionBar {
 				// Draw button background
 				ctx.fillStyle = "rgba(50, 100, 150, 0.8)";
 				ctx.fillRect(buttonX, buttonY, buttonSize, buttonSize);
-				
+
 				// Draw button border
 				ctx.strokeStyle = "rgba(150, 200, 255, 0.9)";
 				ctx.lineWidth = 2;

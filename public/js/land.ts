@@ -152,15 +152,20 @@ function generateSimplexNoise(settings: SimplexNoiseSettings): Map {
 	const {
 		width,
 		height,
-		lacunarity = 2.3,
-		persistence = 0.6,
+		lacunarity = 2.5,
+		persistence = 0.5,
 		octaves = 7,
 		seed = Math.random() * 65536,
 	} = settings;
-	const noise = new SimplexNoise(seed);
+
+	const baseNoise = new SimplexNoise(seed);
+	const featureNoise = new SimplexNoise(seed + 1000); // for rare feature placement
+	const riverNoise = new SimplexNoise(seed + 2000); // for rivers
+
 	const noiseValues: number[][] = Array.from({ length: height }, () =>
 		Array(width).fill(0)
 	);
+
 	const max =
 		persistence === 1
 			? octaves
@@ -176,16 +181,39 @@ function generateSimplexNoise(settings: SimplexNoiseSettings): Map {
 			for (let x = 0; x < width; x++) {
 				const nx = (x / width) * frequency;
 				const ny = (y / height) * frequency;
-				noiseValues[y][x] += noise.noise2D(nx, ny) * amplitude;
+				noiseValues[y][x] += baseNoise.noise2D(nx, ny) * amplitude;
 			}
 		}
 	}
-	// Normalize to [0, 1]
+
+	// Post-processing: Add rivers, plateaus, and canyons
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
-			noiseValues[y][x] = (noiseValues[y][x] - min) / range;
+			const nx = x / width;
+			const ny = y / height;
+
+			let heightVal = noiseValues[y][x];
+
+			// Rare plateau logic
+			const plateauChance = featureNoise.noise2D(nx * 1.5, ny * 1.5);
+			if (plateauChance > 0.92) {
+				// Flatten within a small area
+				const localFlat = Math.floor(heightVal * 8) / 8;
+				heightVal = 0.7 * heightVal + 0.3 * localFlat;
+			}
+
+			// Rare canyon logic
+			if (plateauChance < -0.92) {
+				const canyonDepth = 0.2 * (1 - Math.abs(plateauChance));
+				heightVal -= canyonDepth;
+			}
+
+			// Clamp
+			heightVal = Math.max(0, Math.min(1, (heightVal - min) / range));
+			noiseValues[y][x] = heightVal;
 		}
 	}
+
 	return { data: noiseValues, min: 0, max: 1 };
 }
 

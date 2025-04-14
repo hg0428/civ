@@ -117,56 +117,40 @@ export function calculateSlope(pointA: Vector2, pointB: Vector2): number {
 }
 
 /**
- * Get speed modifier based on slope
- * @param slope Slope value
- * @returns Speed modifier (0-1.5)
+ * Get speed modifier based on slope.
+ * Positive slope is uphill, negative is downhill.
+ * @param slope Slope (rise/run), e.g. 0.1 = 10% incline
+ * @returns Speed multiplier (1 = normal speed, <1 = slower, >1 = faster)
  */
 export function getSpeedModifier(slope: number): number {
-	// Positive slopes (uphill) slow movement
+	const {
+		UPHILL_MAX_SLOPE,
+		UPHILL_MIN_SPEED,
+		DOWNHILL_BOOST_LIMIT,
+		DOWNHILL_MAX_SLOPE,
+		DOWNHILL_MAX_BOOST,
+		DOWNHILL_MIN_SPEED,
+	} = TerrainConfig;
+
 	if (slope > 0) {
-		// Gradual uphill
-		if (slope < TerrainConfig.GRADUAL_UPHILL_SLOPE) {
-			return 1 - slope; // Slow down proportionally
-		}
-		// Steep uphill
-		else if (slope < TerrainConfig.MAX_UPHILL_SLOPE) {
-			return (
-				TerrainConfig.MAX_UPHILL_PENALTY -
-				(slope - TerrainConfig.GRADUAL_UPHILL_SLOPE)
-			); // Slow significantly
-		}
-		// Very steep (climbing)
-		else {
-			return 0; // Too steep to climb
-		}
-	}
-	// Negative slopes (downhill) initially increase then reduce speed
-	else {
+		// Uphill slows down progressively
+		if (slope >= UPHILL_MAX_SLOPE) return 0;
+		const t = slope / UPHILL_MAX_SLOPE;
+		return 1 - t * (1 - UPHILL_MIN_SPEED);
+	} else {
 		const absSlope = Math.abs(slope);
-		// Gentle downhill - speed boost
-		if (absSlope < TerrainConfig.GENTLE_DOWNHILL_SLOPE) {
-			return (
-				1 +
-				(absSlope * (TerrainConfig.MAX_DOWNHILL_BOOST - 1)) /
-					TerrainConfig.GENTLE_DOWNHILL_SLOPE
-			);
-		}
-		// Moderate downhill - normal speed
-		else if (absSlope < TerrainConfig.MODERATE_DOWNHILL_SLOPE) {
-			return 1;
-		}
-		// Steep downhill - slower (careful descent)
-		else if (absSlope < TerrainConfig.MAX_DOWNHILL_SLOPE) {
-			return (
-				1 -
-				((absSlope - TerrainConfig.MODERATE_DOWNHILL_SLOPE) *
-					(1 - TerrainConfig.STEEP_DOWNHILL_PENALTY)) /
-					(TerrainConfig.MAX_DOWNHILL_SLOPE -
-						TerrainConfig.MODERATE_DOWNHILL_SLOPE)
-			);
-		}
-		// Cliff - can't move
-		else {
+		if (absSlope < DOWNHILL_BOOST_LIMIT) {
+			// Gentle downhill: slight speed boost
+			const t = absSlope / DOWNHILL_BOOST_LIMIT;
+			return 1 + t * (DOWNHILL_MAX_BOOST - 1);
+		} else if (absSlope < DOWNHILL_MAX_SLOPE) {
+			// Moderate downhill: speed returns to normal then decreases
+			const t =
+				(absSlope - DOWNHILL_BOOST_LIMIT) /
+				(DOWNHILL_MAX_SLOPE - DOWNHILL_BOOST_LIMIT);
+			return DOWNHILL_MAX_BOOST - t * (DOWNHILL_MAX_BOOST - DOWNHILL_MIN_SPEED);
+		} else {
+			// Too steep: can't descend safely
 			return 0;
 		}
 	}

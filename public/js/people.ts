@@ -5,6 +5,7 @@ import {
 	isPassable,
 } from "./terrainUtils.ts";
 import { findPath, smoothPath } from "./pathfinding.ts";
+import { AcceptsEvents, EventHandler, GameEvent } from "./interactive.ts";
 
 interface Physical {
 	height: number;
@@ -67,8 +68,10 @@ class StockUnit {
 		this.count = count;
 	}
 }
-
-class Person {
+interface PersonEvent extends GameEvent {
+	targetPosition: Vector2 | null;
+}
+class Person implements AcceptsEvents {
 	physical: Physical;
 	mental: Mental;
 	position: Vector2;
@@ -80,7 +83,7 @@ class Person {
 	money: number;
 	possessions: StockUnit[];
 	skills: Map<Skill, number>;
-
+	listeners: { [key: string]: EventHandler[] } = {};
 	constructor(
 		physical: Physical,
 		mental: Mental,
@@ -122,7 +125,7 @@ class Person {
 
 	// Update the person's position based on their speed and terrain
 	// Returns true if the person has reached their destination
-	updateMovement(elapsed: number): boolean {
+	updateMovement(elapsed: number, gameEvent: GameEvent): boolean {
 		if (!this.isMoving || !this.targetPosition || this.path.length === 0) {
 			return true; // Already at destination
 		}
@@ -140,11 +143,17 @@ class Person {
 			this.currentPathIndex++;
 			if (this.currentPathIndex >= this.path.length) {
 				// Reached final destination
+				console.log("Reached final destination");
 				this.position = { ...this.targetPosition };
 				this.isMoving = false;
 				this.targetPosition = null;
 				this.path = [];
 				this.currentPathIndex = 0;
+				this.dispatchEvent({
+					...gameEvent,
+					type: "arrived",
+					targetPosition: this.targetPosition,
+				});
 				return true;
 			}
 			return false; // Continue to next waypoint
@@ -201,6 +210,36 @@ class Person {
 		this.position.y = newY;
 
 		return false; // Still moving
+	}
+	addEventListener(
+		type: string,
+		callback: EventHandler | null,
+		options?: AddEventListenerOptions | boolean
+	): void {
+		if (!this.listeners[type]) this.listeners[type] = [];
+		if (options && (options as AddEventListenerOptions).once) {
+			this.listeners[type].push((event) => {
+				callback(event);
+				this.removeEventListener(type, callback);
+			});
+		} else {
+			this.listeners[type].push(callback as EventHandler);
+		}
+	}
+	removeEventListener(
+		type: string,
+		callback: EventHandler | null,
+		options?: EventListenerOptions | boolean
+	): void {
+		this.listeners[type] = this.listeners[type].filter(
+			(l: EventHandler) => l !== callback
+		);
+	}
+	dispatchEvent(event: PersonEvent): boolean {
+		console.log("Dispatching event:", event);
+		if (!this.listeners[event.type]) return false;
+		this.listeners[event.type].forEach((l: EventHandler) => l(event));
+		return true;
 	}
 }
 const wood = new Item("Wood", [new ItemUse(ItemUseType.commodity, 1, 1)]);

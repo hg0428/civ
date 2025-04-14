@@ -279,12 +279,8 @@ export function findPath(
 	}
 
 	// If we've reached here, no path was found
-	if (DebugConfig.SHOW_PATH_LOGS) {
-		console.log(
-			`No path found after ${iterations} iterations, returning direct path`
-		);
-	}
-	return [{ ...start }, { ...end }]; // Return direct path as fallback
+	alert("No path found or search limit exceeded");
+	return null;
 }
 
 /**

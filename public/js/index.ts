@@ -18,7 +18,9 @@ import { PersonVisualRegistry } from "./personVisual.ts";
 import { Person } from "./people.ts";
 import { actionBar } from "./actionBar.ts";
 import { selectedAction, setSelectedAction, cursorType } from "./gameState.ts";
-import { initTerrainUtils } from "./terrainUtils.ts";
+import { getTerrainHeight, initTerrainUtils } from "./terrainUtils.ts";
+import { Structure, treeType } from "./structure.ts";
+import { TerrainConfig } from "./config.ts";
 let map: World, imageBitmap: ImageBitmap;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
@@ -28,12 +30,12 @@ let width = window.innerWidth * pixelDensity;
 let height = window.innerHeight * pixelDensity;
 const tintLevels = [
 	{
-		threshold: 0.35,
-		color: [0.5, 0.5, 1 / 0.35],
+		threshold: TerrainConfig.WATER_THRESHOLD,
+		color: [0.5, 0.5, 1 / TerrainConfig.WATER_THRESHOLD],
 	},
 	{
-		threshold: 0.75,
-		color: [0.8, 1 / 0.75, 0.55],
+		threshold: TerrainConfig.MOUNTAIN_THRESHOLD,
+		color: [0.8, 1 / TerrainConfig.MOUNTAIN_THRESHOLD, 0.55],
 	},
 ];
 let view = {
@@ -150,7 +152,7 @@ function draw(elapsed: number) {
 	handleControls(elapsed);
 
 	// Update all person visuals (movement, etc.)
-	PersonVisualRegistry.updateAll(elapsed);
+	PersonVisualRegistry.updateAll(elapsed, gameEvent);
 
 	// Draw the map and map elements
 	ctx.save();
@@ -168,6 +170,10 @@ function draw(elapsed: number) {
 			if (element.display && element.isMapElement) {
 				element.draw(ctx, elapsed, gameEvent);
 			}
+		}
+		// Draw map layer
+		for (let element of mapLayer) {
+			element.draw(ctx, elapsed, gameEvent);
 		}
 	} finally {
 		ctx.restore();
@@ -236,10 +242,6 @@ function draw(elapsed: number) {
 		viewportWidthOnMinimap,
 		viewportHeightOnMinimap
 	);
-	// Draw map layer
-	for (let element of mapLayer) {
-		element.draw(ctx, elapsed, gameEvent);
-	}
 	// Draw overlay layer
 	for (let element of overlayLayer) {
 		element.draw(ctx, elapsed, gameEvent);
@@ -431,14 +433,28 @@ async function init() {
 			console.log("Terrain utilities initialized with map data");
 
 			showMap(map.heightMap);
-			isLoading = false;
-
-			// Center the view on the player's people
-			view.x = mapWidth * 0.5 * screenToMap.width;
-			view.y = mapHeight * 0.7 * screenToMap.height;
-			view.zoom = 5; // Start with a reasonable zoom level
 
 			console.log("Map loaded, game ready!");
+			let initialTreeCount = 200;
+			for (let i = 0; i < initialTreeCount; i++) {
+				let x: number = 0,
+					y: number = 0;
+				do {
+					x = Math.random() * mapWidth;
+					y = Math.random() * mapHeight;
+				} while (
+					getTerrainHeight({ x, y }) <= TerrainConfig.WATER_THRESHOLD ||
+					getTerrainHeight({ x, y }) >= TerrainConfig.MOUNTAIN_THRESHOLD
+				);
+				let tree = new Structure(treeType, {
+					position: {
+						x,
+						y,
+					},
+					radius: 3,
+				});
+			}
+			isLoading = false;
 		});
 }
 function renderLoadingScreen() {

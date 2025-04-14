@@ -1,6 +1,6 @@
 import { Circle, Thing, Vector2 } from "./shapes.ts";
 import { Person } from "./people.ts";
-import { InteractiveElement, hoverEffect } from "./interactive.ts";
+import { GameEvent, InteractiveElement, hoverEffect } from "./interactive.ts";
 import { actionBar } from "./actionBar.ts";
 import { Nation } from "./nation.ts";
 
@@ -13,7 +13,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 
 	constructor(person: Person, nation: Nation) {
 		// Create a circle to represent the person
-		const personRadius = 2; // Increased radius for better visibility and interaction
+		const personRadius = 1; // Increased radius for better visibility and interaction
 
 		super({
 			shape: new Circle(personRadius),
@@ -22,7 +22,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 				nation.color[2] * 255
 			}, ${nation.color[3]})`,
 			strokeStyle: "white",
-			strokeWidth: 2,
+			strokeWidth: 0.5,
 			isMapElement: true, // This is a map element, so it will be positioned on the map
 		});
 
@@ -49,7 +49,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 
 		// Update the stroke style to indicate selection
 		this.strokeStyle = "yellow";
-		this.strokeWidth = 0.5;
+		this.strokeWidth = 0.25;
 
 		// Update the action bar with this person's actions
 		actionBar.setSelectedEntity(this.person);
@@ -66,7 +66,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 	deselect() {
 		this.selected = false;
 		this.strokeStyle = "white";
-		this.strokeWidth = 2;
+		this.strokeWidth = 0.25;
 
 		// If this was the selected entity in the action bar, clear it
 		if (actionBar.getSelectedEntity() === this.person) {
@@ -97,8 +97,8 @@ export class PersonVisual extends InteractiveElement<Circle> {
 				}
 			}
 
-			ctx.strokeStyle = "rgba(255, 255, 0, 0.4)";
-			ctx.lineWidth = 2;
+			ctx.strokeStyle = "rgba(255, 255, 0, 0.3)";
+			ctx.lineWidth = 1;
 			ctx.stroke();
 
 			// Draw waypoints
@@ -109,7 +109,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 			) {
 				const waypoint = this.person.path[i];
 				ctx.beginPath();
-				ctx.arc(waypoint.x, waypoint.y, 3, 0, Math.PI * 2);
+				ctx.arc(waypoint.x, waypoint.y, 1, 0, Math.PI * 2);
 				ctx.fillStyle =
 					i === this.person.currentPathIndex
 						? "yellow"
@@ -130,7 +130,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 			ctx.beginPath();
 			ctx.arc(this.position.x, this.position.y, pulseRadius, 0, Math.PI * 2);
 			ctx.strokeStyle = "rgba(255, 255, 0, 0.5)";
-			ctx.lineWidth = 2;
+			ctx.lineWidth = 1;
 			ctx.stroke();
 		}
 	}
@@ -162,9 +162,9 @@ export class PersonVisual extends InteractiveElement<Circle> {
 	}
 
 	// Update the visual position to match the person's current position
-	update(elapsed: number) {
+	update(elapsed: number, gameEvent: GameEvent) {
 		// Update the person's movement
-		this.person.updateMovement(elapsed);
+		this.person.updateMovement(elapsed, gameEvent);
 
 		// Update the visual position to match the person's current position
 		this.position = { ...this.person.position };
@@ -208,9 +208,9 @@ export class PersonVisualRegistry {
 	}
 
 	// Update all person visuals
-	static updateAll(elapsed: number) {
+	static updateAll(elapsed: number, gameEvent: GameEvent) {
 		this.personVisuals.forEach((personVisual) => {
-			personVisual.update(elapsed);
+			personVisual.update(elapsed, gameEvent);
 		});
 	}
 }
