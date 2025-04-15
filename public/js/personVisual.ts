@@ -35,7 +35,11 @@ export class PersonVisual extends InteractiveElement<Circle> {
 
 		// Add click event listener
 		this.addEventListener("click", (event) => {
-			this.select();
+			if (this.selected) {
+				this.deselect();
+			} else {
+				this.select();
+			}
 		});
 	}
 
@@ -148,7 +152,7 @@ export class PersonVisual extends InteractiveElement<Circle> {
 	// Update the visual position to match the person's current position
 	update(elapsed: number, gameEvent: GameEvent) {
 		// Update the person's movement
-		this.person.updateMovement(elapsed, gameEvent);
+		this.person.update(elapsed, gameEvent);
 
 		// Update the visual position to match the person's current position
 		this.position = { ...this.person.position };

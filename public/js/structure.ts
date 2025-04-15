@@ -2,7 +2,6 @@ import { actionBar } from "./actionBar.ts";
 import { selectedAction, setSelectedAction } from "./gameState.ts";
 import { GameEvent, InteractiveElement } from "./interactive.ts";
 import { ItemUseType, Person, StockUnit, stone, wood } from "./people.ts";
-import { PersonVisualRegistry } from "./personVisual.ts";
 import { Circle, Rectangle, Shape, Thing, Vector2 } from "./shapes.ts";
 
 class StructureType {
@@ -61,41 +60,10 @@ class Structure {
 					selectedEntity.addEventListener(
 						"arrived",
 						() => {
-							console.log("Arrived! Event handler!");
-							// TODO: Mine the structure
-							const intervalId = setInterval(() => {
-								if (this.integrity <= 0) {
-									this.thing.remove();
-									// End interval and remove structure when integrity drops to zero
-									clearInterval(intervalId);
-								}
-								const increasePercent = Math.min(
-									1 / this.type.durability,
-									this.integrity
-								);
-								this.integrity -= increasePercent;
-								for (let material of this.type.materials) {
-									if (
-										!selectedEntity.possessions.find(
-											(s) => s.item === material.item
-										)
-									) {
-										selectedEntity.possessions.push(
-											new StockUnit(material.item, 0)
-										);
-									}
-									selectedEntity.possessions.find(
-										(s) => s.item === material.item
-									)!.count +=
-										material.count * increasePercent * this.type.retrievable;
-									console.log(selectedEntity.possessions);
-								}
-								if (this.integrity <= 0) {
-									this.thing.remove();
-									// End interval and remove structure when integrity drops to zero
-									clearInterval(intervalId);
-								}
-							}, 100);
+							selectedEntity.setTask({
+								type: "mine",
+								target: this,
+							});
 						},
 						{ once: true }
 					);
@@ -112,47 +80,4 @@ class Structure {
 		}
 	}
 }
-
-const stoneWallType = new StructureType(
-	[new StockUnit(stone, 100)],
-	200,
-	ItemUseType.miningTool,
-	ItemUseType.miningTool,
-	0.5,
-	(options) =>
-		new InteractiveElement({
-			isMapElement: true,
-			shape: new Rectangle(options.width, options.height),
-			fillStyle: "#808080",
-			...options,
-		})
-);
-const woodWallType = new StructureType(
-	[new StockUnit(wood, 100)],
-	100,
-	ItemUseType.choppingTool,
-	ItemUseType.choppingTool,
-	0.5,
-	(options) =>
-		new InteractiveElement({
-			isMapElement: true,
-			shape: new Rectangle(options.width, options.height),
-			fillStyle: "#808080",
-			...options,
-		})
-);
-const treeType = new StructureType(
-	[new StockUnit(wood, 100)],
-	100,
-	ItemUseType.choppingTool,
-	ItemUseType.choppingTool,
-	1,
-	(options) =>
-		new InteractiveElement({
-			isMapElement: true,
-			shape: new Circle(options.radius),
-			fillStyle: "#654321",
-			...options,
-		})
-);
-export { Structure, StructureType, stoneWallType, woodWallType, treeType };
+export { Structure, StructureType };

@@ -28,10 +28,11 @@ export const PathfindingConfig = {
 
 // Debug settings
 export const DebugConfig = {
-	SHOW_PATH_LOGS: true, // Show pathfinding logs in console
+	SHOW_PATH_LOGS: false, // Show pathfinding logs in console
 	SHOW_TERRAIN_LOGS: false, // Show terrain sampling logs
 	DRAW_TERRAIN_GRID: false, // Draw terrain grid for debugging
 };
 export const MovementConfig = {
 	BASE_SPEED: 20,
+	ACCEPTABLE_ERROR: 1,
 };

@@ -1,4 +1,4 @@
-import { Vector2 } from "./shapes.ts";
+import { getDistance2D, Vector2 } from "./shapes.ts";
 import {
 	calculateSlope,
 	getSpeedModifier,
@@ -7,12 +7,14 @@ import {
 import { findPath, smoothPath } from "./pathfinding.ts";
 import { AcceptsEvents, EventHandler, GameEvent } from "./interactive.ts";
 import { MovementConfig, PathfindingConfig } from "./config.ts";
+import { Structure } from "./structure.ts";
+import { DropOffLocation, dropOffLocations } from "./dropoff.ts";
 
 interface Physical {
-	height: number;
-	weight: number;
-	strength: number;
-	speed: number;
+	height: number; // m
+	weight: number; // kg
+	strength: number; // kg
+	speed: number; // m/s
 }
 class Mental {
 	problem_solving: number;
@@ -54,9 +56,11 @@ class ItemUse {
 class Item {
 	name: string;
 	uses: ItemUse[];
-	constructor(name: string, uses: ItemUse[]) {
+	weight: number; // kg per each one
+	constructor(name: string, uses: ItemUse[], weight: number) {
 		this.name = name;
 		this.uses = uses;
+		this.weight = weight;
 	}
 }
 
@@ -73,6 +77,7 @@ interface PersonEvent extends GameEvent {
 	targetPosition: Vector2 | null;
 }
 const MAX_RETRIES = 5;
+
 class Person implements AcceptsEvents {
 	physical: Physical;
 	mental: Mental;
@@ -88,6 +93,10 @@ class Person implements AcceptsEvents {
 	listeners: { [key: string]: EventHandler[] } = {};
 	retries: number = 0;
 	overshotFactor: number = 0;
+	task: {
+		type: "mine" | "build";
+		target: Structure | null;
+	};
 	constructor(
 		physical: Physical,
 		mental: Mental,
@@ -105,11 +114,18 @@ class Person implements AcceptsEvents {
 		this.possessions = possessions;
 		this.skills = skills;
 	}
-
+	setTask(task: { type: "mine" | "build"; target: Structure | null }) {
+		this.task = task;
+	}
+	getTotalCurrentCarryingWeight(): number {
+		return this.possessions.reduce(
+			(total, stockUnit) => total + stockUnit.count * stockUnit.item.weight,
+			0
+		);
+	}
 	// Set a new target position for the person to move to
 	setTargetPosition(target: Vector2): void {
-		console.log("Setting target position:", target);
-
+		// console.log("Setting target position:", target);
 		// Find path using A* algorithm
 		const path = findPath(this.position, target);
 
@@ -124,26 +140,103 @@ class Person implements AcceptsEvents {
 		this.currentPathIndex = 0;
 		this.isMoving = true;
 
-		console.log(`Path found with ${path.length} waypoints:`, path);
+		// console.log(`Path found with ${path.length} waypoints:`, path);
 	}
 
+	update(elapsed: number, gameEvent: GameEvent) {
+		// Sort drop off locations by distance
+		dropOffLocations.sort(
+			(a, b) =>
+				getDistance2D(this.position, a.location) -
+				getDistance2D(this.position, b.location)
+		);
+		if (
+			dropOffLocations.length > 0 &&
+			getDistance2D(this.position, dropOffLocations[0].location) === 0
+		) {
+			// We are already at the nearest drop off location
+			for (const stock of this.possessions) {
+				dropOffLocations[0].dropMaterial(stock);
+			}
+			this.possessions = [];
+			console.log("Dropped off.");
+		} else if (
+			this.getTotalCurrentCarryingWeight() >= this.physical.strength * 0.9 &&
+			dropOffLocations.length > 0 &&
+			this.isMoving === false
+		) {
+			// Find the nearest drop off location that can be reached (i.e. is not blocked by terrain)
+			for (const dropOff of dropOffLocations) {
+				const path = findPath(this.position, dropOff.location);
+				if (path && path.length > 0) {
+					this.setTargetPosition(dropOff.location);
+					break;
+				}
+			}
+			console.log(
+				"headed to drop off.",
+				this.getTotalCurrentCarryingWeight(),
+				this.physical.strength * 0.9
+			);
+		}
+		if (!this.isMoving && this.task) {
+			let target = this.task.target;
+			if (!target || target.integrity <= 0) {
+				this.task = null;
+			}
+			// If we don't have a destination, look at the current task.
+			if (this.task.type === "mine") {
+				if (
+					getDistance2D(this.position, target.thing.position) >=
+					MovementConfig.ACCEPTABLE_ERROR
+				) {
+					this.setTargetPosition(target.thing.position);
+				} else {
+					// Mine
+					if (target.integrity <= 0) {
+						target.thing.remove();
+						// Structure is destroyed
+						this.task = null;
+					}
+					// Destroy 1pt of the structure per second for each kg of strength the person has.
+					const increasePercent = Math.min(
+						1 / (target.type.durability * elapsed * this.physical.strength),
+						target.integrity
+					);
+					target.integrity -= increasePercent;
+					for (let material of target.type.materials) {
+						if (!this.possessions.find((s) => s.item === material.item)) {
+							this.possessions.push(new StockUnit(material.item, 0));
+						}
+						this.possessions.find((s) => s.item === material.item)!.count +=
+							material.count * increasePercent * target.type.retrievable;
+					}
+					console.log(this.possessions, target.integrity);
+					if (target.integrity <= 0) {
+						target.thing.remove();
+						// Structure is destroyed
+						this.task = null;
+					}
+				}
+			}
+		}
+		this.updateMovement(elapsed, gameEvent);
+	}
 	// Update the person's position based on their speed and terrain
 	// Returns true if the person has reached their destination
 	updateMovement(elapsed: number, gameEvent: GameEvent): boolean {
 		if (!this.isMoving || !this.targetPosition || this.path.length === 0) {
 			return true; // Already at destination
 		}
-
 		// Get current waypoint
 		const currentWaypoint = this.path[this.currentPathIndex];
 
 		// Calculate direction to waypoint
 		const dx = currentWaypoint.x - this.position.x;
 		const dy = currentWaypoint.y - this.position.y;
-		const distance = Math.sqrt(dx * dx + dy * dy);
-		const acceptableError = 1;
+		const distance = getDistance2D(this.position, currentWaypoint);
 		// If reached waypoint, move to next or finish
-		if (distance < acceptableError) {
+		if (distance < MovementConfig.ACCEPTABLE_ERROR) {
 			this.currentPathIndex++;
 			if (this.currentPathIndex >= this.path.length) {
 				// Reached final destination
@@ -183,8 +276,7 @@ class Person implements AcceptsEvents {
 		let speedModifier: number = -1; // set to an impossible speed modifier so change is high initially prior to refinement.
 		let newPos: Vector2 = calculateMovement(1);
 		let change: number = 1;
-		console.log("starting loop...");
-		const MAX_ITERATIONS = 100;
+		const MAX_ITERATIONS = 10;
 		let iteration = 0;
 		while (
 			change >= PathfindingConfig.ERROR_TOLERANCE &&
@@ -193,14 +285,6 @@ class Person implements AcceptsEvents {
 			slope = calculateSlope(this.position, newPos);
 			let newSpeedModifier = getSpeedModifier(slope);
 			change = Math.abs(newSpeedModifier - speedModifier);
-			console.log(
-				slope,
-				speedModifier,
-				newSpeedModifier,
-				change,
-				newPos,
-				this.position
-			);
 			speedModifier = Math.max(
 				newSpeedModifier,
 				PathfindingConfig.ERROR_TOLERANCE
@@ -209,7 +293,6 @@ class Person implements AcceptsEvents {
 			newPos = calculateMovement(speedModifier);
 			iteration++;
 		}
-		console.log("end loop");
 		this.overshotFactor = 0;
 		const { x: newX, y: newY } = newPos;
 
@@ -313,8 +396,8 @@ class Person implements AcceptsEvents {
 		return true;
 	}
 }
-const wood = new Item("Wood", [new ItemUse(ItemUseType.commodity, 1, 1)]);
-const stone = new Item("Stone", [new ItemUse(ItemUseType.commodity, 3, 2)]);
+const wood = new Item("Wood", [new ItemUse(ItemUseType.commodity, 1, 1)], 20);
+const stone = new Item("Stone", [new ItemUse(ItemUseType.commodity, 3, 2)], 80);
 
 export {
 	Physical,

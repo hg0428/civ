@@ -3,6 +3,7 @@ import { Circle, Rectangle, Vector2 } from "./shapes.ts";
 import { Person } from "./people.ts";
 import { Structure } from "./structure.ts";
 import { setSelectedAction } from "./gameState.ts";
+import { DropOffLocation } from "./dropoff.ts";
 
 export interface Action {
 	name: string;
@@ -16,8 +17,8 @@ export class ActionBar {
 	private position: Vector2;
 	private size: Vector2;
 	private actions: Action[] = [];
-	private visible: boolean = false;
-	private selectedEntity: Person | Structure | null = null;
+	private visible: boolean = true;
+	private selectedEntity: Person | Structure | DropOffLocation | null = null;
 	private actionButtons: InteractiveElement<Rectangle>[] = [];
 
 	constructor() {
@@ -37,25 +38,41 @@ export class ActionBar {
 		}
 	}
 
-	setSelectedEntity(entity: Person | Structure | null) {
+	setSelectedEntity(entity: Person | Structure | DropOffLocation | null) {
 		this.selectedEntity = entity;
 		this.updateActions();
-		this.visible = entity !== null;
+		// this.visible = entity !== null;
 	}
 
-	getSelectedEntity(): Person | Structure | null {
+	getSelectedEntity(): Person | Structure | DropOffLocation | null {
 		return this.selectedEntity;
 	}
 
-	private updateActions() {
+	updateActions() {
 		this.actions = [];
 		this.clearActionButtons();
 
-		if (!this.selectedEntity) return;
-
-		if (this.selectedEntity instanceof Person) {
-			const person = this.selectedEntity;
-
+		if (!this.selectedEntity) {
+			this.actions.push({
+				name: "+ dropoff",
+				description: "Add drop off location",
+				execute: () => {
+					console.log("Add drop off action selected");
+					setSelectedAction("AddDropOff");
+				},
+				available: () => true,
+			});
+		} else if (this.selectedEntity instanceof DropOffLocation) {
+			let selectedEntity = this.selectedEntity;
+			this.actions.push({
+				name: "Delete",
+				description: "Delete this drop off location",
+				execute: () => {
+					selectedEntity.remove();
+				},
+				available: () => true,
+			});
+		} else if (this.selectedEntity instanceof Person) {
 			// Move action
 			this.actions.push({
 				name: "Move",
@@ -127,8 +144,9 @@ export class ActionBar {
 					fillStyle: "rgba(50, 150, 200, 0.8)",
 					strokeStyle: "white",
 				});
-
+				console.log("Creating button:", action.name);
 				button.addEventListener("click", (event: GameEvent) => {
+					console.log("click");
 					action.execute();
 				});
 

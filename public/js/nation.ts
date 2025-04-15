@@ -45,11 +45,12 @@ export class Nation {
 	// Create a new person with random attributes and add them to the nation
 	createPerson(position: Vector2): Person {
 		// Generate random physical attributes
+		const weight = normalDistributionRandom(85, 35);
 		const physical: Physical = {
-			height: normalDistributionRandom(177, 8),
-			weight: normalDistributionRandom(82.6, 34.4),
-			strength: normalDistributionRandom(5, 2),
-			speed: normalDistributionRandom(5, 2),
+			height: normalDistributionRandom(1.77, 0.08),
+			weight,
+			strength: normalDistributionRandom(0.4, 0.1) * weight,
+			speed: normalDistributionRandom(2, 0.3), // m/s
 		};
 
 		// Generate random mental attributes

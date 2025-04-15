@@ -10,7 +10,7 @@ export function setSelectedAction(action: string | null): void {
 	selectedAction = action;
 
 	// Update cursor type based on action
-	if (action === "Move" || action === "Mine") {
+	if (action === "Move" || action === "Mine" || action === "AddDropOff") {
 		cursorType = "move";
 	} else {
 		cursorType = "default";

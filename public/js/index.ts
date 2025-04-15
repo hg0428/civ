@@ -1,4 +1,10 @@
-import { Rectangle, Vector2, getDistance2D, isInBounds } from "./shapes.ts";
+import {
+	Circle,
+	Rectangle,
+	Vector2,
+	getDistance2D,
+	isInBounds,
+} from "./shapes.ts";
 import {
 	generateHeightMap,
 	renderHeightMap,
@@ -15,12 +21,13 @@ import { renderMenus } from "./menu.ts";
 import { mapLayer, overlayLayer } from "./game.ts";
 import { createPlayerNation, nationsRegistry } from "./nation.ts";
 import { PersonVisualRegistry } from "./personVisual.ts";
-import { Person } from "./people.ts";
+import { ItemUseType, Person, StockUnit, stone, wood } from "./people.ts";
 import { actionBar } from "./actionBar.ts";
 import { selectedAction, setSelectedAction, cursorType } from "./gameState.ts";
 import { getTerrainHeight, initTerrainUtils } from "./terrainUtils.ts";
-import { Structure, treeType } from "./structure.ts";
+import { Structure, StructureType } from "./structure.ts";
 import { TerrainConfig } from "./config.ts";
+import { DropOffLocation } from "./dropoff.ts";
 let map: World, imageBitmap: ImageBitmap;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
@@ -49,7 +56,7 @@ let view = {
 let KeysPressed = new Set();
 let previousTimestamp = 0;
 let elapsed = 0;
-let scale = 20;
+let scale = 10;
 // 157x100
 let mapResolution = new Rectangle(157 * scale, 100 * scale);
 let coordinateToMapRatio = 1;
@@ -66,6 +73,48 @@ const buttonNames = ["left", "right", "middle", "back", "forward"];
 let isLoading = true;
 let loadingProgress = 0;
 let loadingMessage = "Generating world...";
+const stoneWallType = new StructureType(
+	[new StockUnit(stone, 100)],
+	200,
+	ItemUseType.miningTool,
+	ItemUseType.miningTool,
+	0.5,
+	(options) =>
+		new InteractiveElement({
+			isMapElement: true,
+			shape: new Rectangle(options.width, options.height),
+			fillStyle: "#808080",
+			...options,
+		})
+);
+const woodWallType = new StructureType(
+	[new StockUnit(wood, 100)],
+	100,
+	ItemUseType.choppingTool,
+	ItemUseType.choppingTool,
+	0.5,
+	(options) =>
+		new InteractiveElement({
+			isMapElement: true,
+			shape: new Rectangle(options.width, options.height),
+			fillStyle: "#808080",
+			...options,
+		})
+);
+const treeType = new StructureType(
+	[new StockUnit(wood, 100)],
+	100,
+	ItemUseType.choppingTool,
+	ItemUseType.choppingTool,
+	1,
+	(options) =>
+		new InteractiveElement({
+			isMapElement: true,
+			shape: new Circle(options.radius),
+			fillStyle: "#654321",
+			...options,
+		})
+);
 // https://www.reddit.com/r/proceduralgeneration/comments/37azql/comment/crm6z37/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 
 let gameEvent: GameEvent = {
@@ -392,10 +441,8 @@ async function init() {
 			getTerrainHeight({ x, y }) >= TerrainConfig.MOUNTAIN_THRESHOLD
 		);
 
-		const position = { x, y };
-
 		// Create the person and add to nation
-		const person = playerNation.createPerson(position);
+		const person = playerNation.createPerson({ x, y });
 
 		// Create visual representation
 		const personVisual = PersonVisualRegistry.createPersonVisual(
@@ -618,6 +665,15 @@ function mouseHandler(event: MouseEvent) {
 		}
 	}
 
+	if (
+		selectedAction === "AddDropOff" &&
+		type === "pointerdown" &&
+		isMouseButtonPressed(buttons, "left")
+	) {
+		const dropOffLocation = new DropOffLocation(gameEvent.mapPosition);
+		InteractiveElements.push(dropOffLocation);
+		setSelectedAction(null);
+	}
 	// Handle hovering
 	hoveringCheck();
 
@@ -997,5 +1053,6 @@ function setSize() {
 
 	// Update action bar position when window is resized
 	actionBar.updatePosition();
+	actionBar.updateActions();
 }
 window.addEventListener("resize", setSize);
