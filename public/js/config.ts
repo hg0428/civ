@@ -36,3 +36,12 @@ export const MovementConfig = {
 	BASE_SPEED: 20,
 	ACCEPTABLE_ERROR: 1,
 };
+export const MAP_CONFIG = {
+	PIXELATED: true,
+	SCALE: 10,
+	MIN_ZOOM: 1,
+	MAX_ZOOM: 200,
+};
+export const GAME_CONFIG = {
+	GAME_SPEED_MULTIPLIER: 1 / 10,
+};

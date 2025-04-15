@@ -35,13 +35,19 @@ export class InteractiveElement<shape extends Shape>
 	 * Whether of not the element is a map element
 	 */
 	isMapElement: boolean = false;
+	/**
+	 * Whether the element is active and listening for clicks
+	 */
+	active: boolean = true;
 	constructor(
 		options: {
 			isMapElement?: boolean;
+			active?: boolean;
 		} & ConstructorParameters<typeof Thing<shape>>[0]
 	) {
 		super(options);
 		this.isMapElement = options.isMapElement ?? false;
+		this.active = this.active;
 		InteractiveElements.push(this);
 	}
 	addEventListener(

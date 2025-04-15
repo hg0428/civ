@@ -37,3 +37,17 @@ export class DropOffLocation extends InteractiveElement<Circle> {
 	}
 }
 export const dropOffLocations: DropOffLocation[] = [];
+export function calculateAllStock() {
+	const stock: StockUnit[] = [];
+	for (let location of dropOffLocations) {
+		for (let stockUnit of location.stock) {
+			let possession = stock.find((s) => s.item === stockUnit.item);
+			if (!possession) {
+				possession = new StockUnit(stockUnit.item, 0);
+				stock.push(possession);
+			}
+			possession.count += stockUnit.count;
+		}
+	}
+	return stock;
+}

@@ -3,9 +3,10 @@ import { selectedAction, setSelectedAction } from "./gameState.ts";
 import { GameEvent, InteractiveElement } from "./interactive.ts";
 import { ItemUseType, Person, StockUnit, stone, wood } from "./people.ts";
 import { Circle, Rectangle, Shape, Thing, Vector2 } from "./shapes.ts";
-
-class StructureType {
-	materials: StockUnit[]; // What it takes to construct
+export const STRUCTURE_TYPES: StructureType[] = [];
+export class StructureType {
+	name: string;
+	materials: StockUnit[]; // What it takes to construct per area
 	durability: number; // Durability
 	toBuild: ItemUseType; // Item that increases speed of construction
 	toDestroy: ItemUseType; // Item that increases speed of destruction
@@ -16,32 +17,49 @@ class StructureType {
 		structure: Structure
 	) => void;
 	initThing: (options: any) => InteractiveElement<Shape>;
-	constructor(
-		materials: StockUnit[],
-		durability: number,
-		toBuild: ItemUseType,
-		toDestroy: ItemUseType,
-		retrievable: number = 0.5, // Default retrievable fraction is 50%
-		initThing: (options: any) => InteractiveElement<Shape>,
-		update: (
+	build: null | (() => void);
+	constructor({
+		name,
+		materials,
+		durability,
+		toBuild,
+		toDestroy,
+		retrievable = 0.5, // Default retrievable fraction is 50%
+		initThing,
+		update = () => {},
+		build = null,
+	}: {
+		name: string;
+		materials: StockUnit[];
+		durability: number;
+		toBuild: ItemUseType;
+		toDestroy: ItemUseType;
+		retrievable?: number;
+		initThing: (options: any) => InteractiveElement<Shape>;
+		update?: (
 			gameEvent: GameEvent,
 			ctx: CanvasRenderingContext2D,
 			structure: Structure
-		) => void = () => {}
-	) {
+		) => void;
+		build?: (() => void) | null;
+	}) {
+		this.name = name;
 		this.materials = materials;
 		this.durability = durability;
 		this.toBuild = toBuild;
 		this.toDestroy = toDestroy;
 		this.retrievable = retrievable;
+		this.build = build;
 		this.update = update;
 		this.initThing = initThing;
+		STRUCTURE_TYPES.push(this);
 	}
 }
-class Structure {
+export class Structure {
 	type: StructureType;
 	integrity: number;
 	thing: InteractiveElement<Shape>;
+	scale: number = 1; // Size or scale
 	constructor(type: StructureType, options: any = {}) {
 		this.type = type;
 		this.integrity = 1; // 100%
@@ -80,4 +98,3 @@ class Structure {
 		}
 	}
 }
-export { Structure, StructureType };

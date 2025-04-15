@@ -6,7 +6,7 @@ import {
 } from "./terrainUtils.ts";
 import { findPath, smoothPath } from "./pathfinding.ts";
 import { AcceptsEvents, EventHandler, GameEvent } from "./interactive.ts";
-import { MovementConfig, PathfindingConfig } from "./config.ts";
+import { GAME_CONFIG, MovementConfig, PathfindingConfig } from "./config.ts";
 import { Structure } from "./structure.ts";
 import { DropOffLocation, dropOffLocations } from "./dropoff.ts";
 
@@ -77,7 +77,10 @@ interface PersonEvent extends GameEvent {
 	targetPosition: Vector2 | null;
 }
 const MAX_RETRIES = 5;
-
+interface Task {
+	type: "mine" | "build";
+	target: Structure | null;
+}
 class Person implements AcceptsEvents {
 	physical: Physical;
 	mental: Mental;
@@ -93,10 +96,7 @@ class Person implements AcceptsEvents {
 	listeners: { [key: string]: EventHandler[] } = {};
 	retries: number = 0;
 	overshotFactor: number = 0;
-	task: {
-		type: "mine" | "build";
-		target: Structure | null;
-	};
+	task: Task;
 	constructor(
 		physical: Physical,
 		mental: Mental,
@@ -114,7 +114,7 @@ class Person implements AcceptsEvents {
 		this.possessions = possessions;
 		this.skills = skills;
 	}
-	setTask(task: { type: "mine" | "build"; target: Structure | null }) {
+	setTask(task: Task) {
 		this.task = task;
 	}
 	getTotalCurrentCarryingWeight(): number {
@@ -125,7 +125,6 @@ class Person implements AcceptsEvents {
 	}
 	// Set a new target position for the person to move to
 	setTargetPosition(target: Vector2): void {
-		// console.log("Setting target position:", target);
 		// Find path using A* algorithm
 		const path = findPath(this.position, target);
 
@@ -139,8 +138,6 @@ class Person implements AcceptsEvents {
 		this.path = path;
 		this.currentPathIndex = 0;
 		this.isMoving = true;
-
-		// console.log(`Path found with ${path.length} waypoints:`, path);
 	}
 
 	update(elapsed: number, gameEvent: GameEvent) {
@@ -150,77 +147,103 @@ class Person implements AcceptsEvents {
 				getDistance2D(this.position, a.location) -
 				getDistance2D(this.position, b.location)
 		);
-		if (
+
+		if (!this.isMoving && this.task) {
+			const target = this.task.target;
+
+			if (!target || target.integrity <= 0) {
+				this.task = null;
+			} else if (this.task.type === "mine") {
+				this.handleMiningTask(target, elapsed);
+			} else if (this.task.type === "build") {
+				this.handleBuildTask(target, elapsed);
+			}
+		}
+
+		this.updateMovement(elapsed, gameEvent);
+	}
+
+	private handleMiningTask(target: Structure, elapsed: number) {
+		const isAtDropOff =
 			dropOffLocations.length > 0 &&
-			getDistance2D(this.position, dropOffLocations[0].location) === 0
-		) {
-			// We are already at the nearest drop off location
+			getDistance2D(this.position, dropOffLocations[0].location) === 0;
+
+		const isOverburdened =
+			this.getTotalCurrentCarryingWeight() >= this.physical.strength * 0.9;
+		if (isAtDropOff) {
 			for (const stock of this.possessions) {
 				dropOffLocations[0].dropMaterial(stock);
 			}
 			this.possessions = [];
-			console.log("Dropped off.");
 		} else if (
-			this.getTotalCurrentCarryingWeight() >= this.physical.strength * 0.9 &&
-			dropOffLocations.length > 0 &&
-			this.isMoving === false
+			isOverburdened &&
+			!this.isMoving &&
+			dropOffLocations.length > 0
 		) {
-			// Find the nearest drop off location that can be reached (i.e. is not blocked by terrain)
 			for (const dropOff of dropOffLocations) {
 				const path = findPath(this.position, dropOff.location);
 				if (path && path.length > 0) {
 					this.setTargetPosition(dropOff.location);
-					break;
-				}
-			}
-			console.log(
-				"headed to drop off.",
-				this.getTotalCurrentCarryingWeight(),
-				this.physical.strength * 0.9
-			);
-		}
-		if (!this.isMoving && this.task) {
-			let target = this.task.target;
-			if (!target || target.integrity <= 0) {
-				this.task = null;
-			}
-			// If we don't have a destination, look at the current task.
-			if (this.task.type === "mine") {
-				if (
-					getDistance2D(this.position, target.thing.position) >=
-					MovementConfig.ACCEPTABLE_ERROR
-				) {
-					this.setTargetPosition(target.thing.position);
-				} else {
-					// Mine
-					if (target.integrity <= 0) {
-						target.thing.remove();
-						// Structure is destroyed
-						this.task = null;
-					}
-					// Destroy 1pt of the structure per second for each kg of strength the person has.
-					const increasePercent = Math.min(
-						1 / (target.type.durability * elapsed * this.physical.strength),
-						target.integrity
-					);
-					target.integrity -= increasePercent;
-					for (let material of target.type.materials) {
-						if (!this.possessions.find((s) => s.item === material.item)) {
-							this.possessions.push(new StockUnit(material.item, 0));
-						}
-						this.possessions.find((s) => s.item === material.item)!.count +=
-							material.count * increasePercent * target.type.retrievable;
-					}
-					console.log(this.possessions, target.integrity);
-					if (target.integrity <= 0) {
-						target.thing.remove();
-						// Structure is destroyed
-						this.task = null;
-					}
+					return;
 				}
 			}
 		}
-		this.updateMovement(elapsed, gameEvent);
+
+		if (
+			getDistance2D(this.position, target.thing.position) >=
+			MovementConfig.ACCEPTABLE_ERROR
+		) {
+			this.setTargetPosition(target.thing.position);
+		} else {
+			this.mineTarget(target, elapsed);
+		}
+	}
+
+	private mineTarget(target: Structure, elapsed: number) {
+		if (target.integrity <= 0) {
+			target.thing.remove();
+			this.task = null;
+			return;
+		}
+
+		const durability = target.type.durability;
+		const strength = this.physical.strength;
+		const retrievable = target.type.retrievable;
+
+		const percent = Math.min(
+			(elapsed * strength * GAME_CONFIG.GAME_SPEED_MULTIPLIER) / durability,
+			target.integrity
+		);
+		target.integrity -= percent;
+		console.log(target.integrity);
+
+		for (let material of target.type.materials) {
+			let possession = this.possessions.find((s) => s.item === material.item);
+			if (!possession) {
+				possession = new StockUnit(material.item, 0);
+				this.possessions.push(possession);
+			}
+			possession.count += material.count * percent * retrievable * target.scale;
+		}
+
+		if (target.integrity <= 0) {
+			target.thing.remove();
+			this.task = null;
+		}
+	}
+
+	private handleBuildTask(target: Structure, elapsed: number) {
+		if (
+			getDistance2D(this.position, target.thing.position) >=
+			MovementConfig.ACCEPTABLE_ERROR
+		) {
+			this.setTargetPosition(target.thing.position);
+		} else {
+			if (target.integrity >= 1) {
+				this.task = null; // Structure complete
+			}
+			// TODO: handle construction.
+		}
 	}
 	// Update the person's position based on their speed and terrain
 	// Returns true if the person has reached their destination

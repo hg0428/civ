@@ -22,16 +22,20 @@ import { mapLayer, overlayLayer } from "./game.ts";
 import { createPlayerNation, nationsRegistry } from "./nation.ts";
 import { PersonVisualRegistry } from "./personVisual.ts";
 import { ItemUseType, Person, StockUnit, stone, wood } from "./people.ts";
-import { actionBar } from "./actionBar.ts";
-import { selectedAction, setSelectedAction, cursorType } from "./gameState.ts";
+import { actionBar, buildMenu } from "./actionBar.ts";
+import {
+	selectedAction,
+	setSelectedAction,
+	cursorType,
+	buildingStructure,
+} from "./gameState.ts";
 import { getTerrainHeight, initTerrainUtils } from "./terrainUtils.ts";
 import { Structure, StructureType } from "./structure.ts";
-import { TerrainConfig } from "./config.ts";
-import { DropOffLocation } from "./dropoff.ts";
+import { MAP_CONFIG, TerrainConfig } from "./config.ts";
+import { calculateAllStock, DropOffLocation } from "./dropoff.ts";
 let map: World, imageBitmap: ImageBitmap;
 const canvas = document.getElementById("canvas") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d");
-const pixelated = true;
 let pixelDensity = window.devicePixelRatio;
 let width = window.innerWidth * pixelDensity;
 let height = window.innerHeight * pixelDensity;
@@ -56,9 +60,11 @@ let view = {
 let KeysPressed = new Set();
 let previousTimestamp = 0;
 let elapsed = 0;
-let scale = 10;
 // 157x100
-let mapResolution = new Rectangle(157 * scale, 100 * scale);
+let mapResolution = new Rectangle(
+	157 * MAP_CONFIG.SCALE,
+	100 * MAP_CONFIG.SCALE
+);
 let coordinateToMapRatio = 1;
 const mapWidth = mapResolution.width * coordinateToMapRatio;
 const mapHeight = mapResolution.height * coordinateToMapRatio;
@@ -66,55 +72,134 @@ let screenToMap = {
 	width: 1,
 	height: 1,
 };
-let minZoom = 1;
-let maxZoom = 200;
 const buttonNames = ["left", "right", "middle", "back", "forward"];
 // Loading screen state
 let isLoading = true;
 let loadingProgress = 0;
 let loadingMessage = "Generating world...";
-const stoneWallType = new StructureType(
-	[new StockUnit(stone, 100)],
-	200,
-	ItemUseType.miningTool,
-	ItemUseType.miningTool,
-	0.5,
-	(options) =>
+const stoneWallType = new StructureType({
+	name: "stone wall",
+	materials: [new StockUnit(stone, 100)],
+	durability: 200,
+	toBuild: ItemUseType.miningTool,
+	toDestroy: ItemUseType.miningTool,
+	retrievable: 0.5,
+	initThing: (options) =>
 		new InteractiveElement({
 			isMapElement: true,
 			shape: new Rectangle(options.width, options.height),
 			fillStyle: "#808080",
 			...options,
-		})
-);
-const woodWallType = new StructureType(
-	[new StockUnit(wood, 100)],
-	100,
-	ItemUseType.choppingTool,
-	ItemUseType.choppingTool,
-	0.5,
-	(options) =>
+		}),
+});
+const woodWallType = new StructureType({
+	name: "wood wall",
+	materials: [new StockUnit(wood, 1)],
+	durability: 100,
+	toBuild: ItemUseType.choppingTool,
+	toDestroy: ItemUseType.choppingTool,
+	retrievable: 0.5,
+	initThing: (options) =>
 		new InteractiveElement({
 			isMapElement: true,
 			shape: new Rectangle(options.width, options.height),
-			fillStyle: "#808080",
+			fillStyle: "#654321",
+			stroke: false,
 			...options,
-		})
-);
-const treeType = new StructureType(
-	[new StockUnit(wood, 100)],
-	100,
-	ItemUseType.choppingTool,
-	ItemUseType.choppingTool,
-	1,
-	(options) =>
+		}),
+
+	build: () => {
+		console.log("begin build");
+		// Begin flow for construction.
+		const structure = new Structure(woodWallType, {
+			width: 1,
+			height: 1,
+		});
+		structure.integrity = 1e-10; // Not built yet.
+		setSelectedAction("resize");
+		let start: Vector2 | null;
+		let end: Vector2 | null;
+		let area: number | null;
+		let canBuild: boolean = true;
+		const pointerDownHandler = (event: PointerEvent) => {
+			console.log("mousedown, set start");
+			start = getPositionOnMap({
+				x: event.clientX * pixelDensity,
+				y: event.clientY * pixelDensity,
+			});
+		};
+		const pointerMoveHandler = (event: PointerEvent) => {
+			console.log("mousemove");
+			if (start) {
+				end = getPositionOnMap({
+					x: event.clientX * pixelDensity,
+					y: event.clientY * pixelDensity,
+				});
+				// @ts-ignore
+				structure.thing.shape.width = Math.abs(start.x - end.x);
+				// @ts-ignore
+				structure.thing.shape.height = Math.abs(start.y - end.y);
+				structure.thing.position = {
+					x: start.x + (end.x - start.x) / 2,
+					y: start.y + (end.y - start.y) / 2,
+				};
+				area = Math.abs(start.x - end.x) * Math.abs(start.y - end.y);
+				structure.scale = area;
+				const allStock = calculateAllStock();
+				for (let material of structure.type.materials) {
+					let possession = allStock.find((s) => s.item === material.item);
+					if (!possession || possession.count < material.count * area) {
+						canBuild = false;
+						break;
+					}
+				}
+				structure.thing.fillStyle = canBuild ? "#654321" : "#ff0000";
+			}
+		};
+		const pointerUpHandler = (event: PointerEvent) => {
+			if (start && end) {
+				removeHandlers();
+				if (!canBuild) {
+					structure.thing.remove();
+					return alert("Not enough materials!");
+				}
+				const selectedEntity = actionBar.getSelectedEntity();
+				if (selectedEntity instanceof Person) {
+					selectedEntity.setTask({
+						type: "build",
+						target: structure,
+					});
+				}
+				console.log("construction begun.");
+			} else {
+				start = end = null;
+			}
+		};
+		const removeHandlers = () => {
+			window.removeEventListener("pointerdown", pointerDownHandler);
+			window.removeEventListener("pointermove", pointerMoveHandler);
+			window.removeEventListener("pointerup", pointerUpHandler);
+		};
+		window.addEventListener("pointerdown", pointerDownHandler);
+		window.addEventListener("pointermove", pointerMoveHandler);
+		window.addEventListener("pointerup", pointerUpHandler);
+	},
+});
+const treeType = new StructureType({
+	name: "tree",
+	materials: [new StockUnit(wood, 100)],
+	durability: 100,
+	toBuild: ItemUseType.choppingTool,
+	toDestroy: ItemUseType.choppingTool,
+	retrievable: 1,
+	initThing: (options) =>
 		new InteractiveElement({
 			isMapElement: true,
 			shape: new Circle(options.radius),
 			fillStyle: "#654321",
 			...options,
-		})
-);
+		}),
+});
 // https://www.reddit.com/r/proceduralgeneration/comments/37azql/comment/crm6z37/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
 
 let gameEvent: GameEvent = {
@@ -211,7 +296,7 @@ function draw(elapsed: number) {
 		ctx.scale(view.realZoom, view.realZoom);
 
 		// Draw Game map
-		ctx.imageSmoothingEnabled = !pixelated;
+		ctx.imageSmoothingEnabled = !MAP_CONFIG.PIXELATED;
 		ctx.drawImage(imageBitmap, 0, 0, mapWidth, mapHeight);
 
 		// Render map-based interactive elements (including people)
@@ -357,6 +442,7 @@ function draw(elapsed: number) {
 			gameEvent.canvasPosition.y + crosshairSize + 1
 		);
 		ctx.stroke();
+	} else if (cursorType === "build") {
 	} else {
 		// Draw the original mouse cursor
 		// Set the style properties
@@ -415,6 +501,7 @@ async function init() {
 	loadingMessage = "Initializing...";
 
 	console.log("Initializing game...");
+	buildMenu.setupButtons();
 
 	// Initialize the player nation with a distinctive color
 	const playerNation = createPlayerNation();
@@ -615,9 +702,8 @@ function mouseHandler(event: MouseEvent) {
 			forward: isMouseButtonPressed(buttons, "forward"),
 		},
 	});
-
-	// Handle right-click for quick movement
 	if (type === "pointerdown" && isMouseButtonPressed(buttons, "right")) {
+		// Handle right-click for quick movement
 		// Get the selected person
 		const selectedEntity = actionBar.getSelectedEntity();
 		if (selectedEntity instanceof Person) {
@@ -716,6 +802,7 @@ function mouseHandler(event: MouseEvent) {
 			) {
 				// It's a click!
 				for (let element of InteractiveElements) {
+					if (!element.active) continue;
 					if (
 						element.isMapElement &&
 						isInBounds(clickStartPositionMap, element)
@@ -977,7 +1064,10 @@ function updateZoomWithMousePosition(newZoom: number) {
 }
 
 function handleZoom(amount: number) {
-	let newZoom = Math.min(Math.max(minZoom, view.zoom + amount), maxZoom);
+	let newZoom = Math.min(
+		Math.max(MAP_CONFIG.MIN_ZOOM, view.zoom + amount),
+		MAP_CONFIG.MAX_ZOOM
+	);
 	updateZoomWithMousePosition(newZoom);
 }
 
@@ -1010,6 +1100,7 @@ window.addEventListener("keyup", (event) => {
 	else if (event.key == "h") showMap(map.heightMap);
 	else if (event.key == "i") showMap(map.materialMap.Iron);
 	else if (event.key == "g") showMap(map.materialMap.Gold);
+	else if (event.key == "Escape") buildMenu.hide();
 });
 
 // Prevent zooming
