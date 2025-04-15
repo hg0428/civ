@@ -49,7 +49,7 @@ let view = {
 let KeysPressed = new Set();
 let previousTimestamp = 0;
 let elapsed = 0;
-let scale = 10;
+let scale = 20;
 // 157x100
 let mapResolution = new Rectangle(157 * scale, 100 * scale);
 let coordinateToMapRatio = 1;

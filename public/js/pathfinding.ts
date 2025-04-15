@@ -85,12 +85,6 @@ export function findPath(
 			)}) to (${end.x.toFixed(1)}, ${end.y.toFixed(1)})`
 		);
 	}
-
-	// If start and end are very close, return direct path
-	const directDistance = Math.sqrt(
-		Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
-	);
-
 	// Round start and end to grid positions for A* calculation
 	const startPos: Vector2 = { x: Math.round(start.x), y: Math.round(start.y) };
 	const endPos: Vector2 = { x: Math.round(end.x), y: Math.round(end.y) };

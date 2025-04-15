@@ -168,8 +168,8 @@ class Person implements AcceptsEvents {
 		const position = this.position;
 		function calculateMovement(speed: number): Vector2 {
 			const totalSpeed =
-				physicalSpeed * MovementConfig.BASE_SPEED * (elapsed / 1000) * speed +
-				overshotFactor;
+				physicalSpeed * MovementConfig.BASE_SPEED * speed * (elapsed / 1000) +
+				overshotFactor * speed;
 			// Normalize direction vector and apply movement
 			const dirX = dx / distance;
 			const dirY = dy / distance;
@@ -179,84 +179,106 @@ class Person implements AcceptsEvents {
 			const newY = position.y + dirY * totalSpeed;
 			return { x: newX, y: newY };
 		}
-		let slope: number, speedModifier: number;
+		let slope: number = 0;
+		let speedModifier: number = -1; // set to an impossible speed modifier so change is high initially prior to refinement.
 		let newPos: Vector2 = calculateMovement(1);
 		let change: number = 1;
-		while (change >= PathfindingConfig.ERROR_TOLERANCE) {
+		console.log("starting loop...");
+		const MAX_ITERATIONS = 100;
+		let iteration = 0;
+		while (
+			change >= PathfindingConfig.ERROR_TOLERANCE &&
+			iteration < MAX_ITERATIONS
+		) {
 			slope = calculateSlope(this.position, newPos);
 			let newSpeedModifier = getSpeedModifier(slope);
 			change = Math.abs(newSpeedModifier - speedModifier);
+			console.log(
+				slope,
+				speedModifier,
+				newSpeedModifier,
+				change,
+				newPos,
+				this.position
+			);
 			speedModifier = Math.max(
 				newSpeedModifier,
 				PathfindingConfig.ERROR_TOLERANCE
 			);
 
 			newPos = calculateMovement(speedModifier);
+			iteration++;
 		}
+		console.log("end loop");
 		this.overshotFactor = 0;
 		const { x: newX, y: newY } = newPos;
 
-		// If we overshot the waypoint (i.e. we were on one side of it, now we are on the other), set it to the waypoint
-		// Check if we overshot the waypoint
-		const passedX =
-			(this.position.x < currentWaypoint.x && newX > currentWaypoint.x) ||
-			(this.position.x > currentWaypoint.x && newX < currentWaypoint.x);
-		const passedY =
-			(this.position.y < currentWaypoint.y && newY > currentWaypoint.y) ||
-			(this.position.y > currentWaypoint.y && newY < currentWaypoint.y);
+		// Check if new position is passable
+		if (isPassable({ x: newX, y: newY }) && speedModifier > 0) {
+			// If we overshot the waypoint (i.e. we were on one side of it, now we are on the other), set it to the waypoint
+			// Check if we overshot the waypoint
+			const passedX =
+				(this.position.x < currentWaypoint.x && newX > currentWaypoint.x) ||
+				(this.position.x > currentWaypoint.x && newX < currentWaypoint.x);
+			const passedY =
+				(this.position.y < currentWaypoint.y && newY > currentWaypoint.y) ||
+				(this.position.y > currentWaypoint.y && newY < currentWaypoint.y);
 
-		// Calculate overshoot factor (how many times we went past the target)
-		const overshootX = passedX
-			? Math.abs(
-					(newX - currentWaypoint.x) / (currentWaypoint.x - this.position.x)
-			  )
-			: 0;
-		const overshootY = passedY
-			? Math.abs(
-					(newY - currentWaypoint.y) / (currentWaypoint.y - this.position.y)
-			  )
-			: 0;
-		this.overshotFactor = Math.max(overshootX, overshootY);
+			// Calculate overshoot factor (how many times we went past the target)
+			const overshootX = passedX
+				? Math.abs(
+						(newX - currentWaypoint.x) / (currentWaypoint.x - this.position.x)
+				  )
+				: 0;
+			const overshootY = passedY
+				? Math.abs(
+						(newY - currentWaypoint.y) / (currentWaypoint.y - this.position.y)
+				  )
+				: 0;
+			this.overshotFactor = Math.max(overshootX, overshootY) / speedModifier;
 
-		if (passedX || passedY) {
-			// We overshot, snap to the waypoint
-			this.position.x = currentWaypoint.x;
-			this.position.y = currentWaypoint.y;
+			if (passedX || passedY) {
+				// We overshot, snap to the waypoint
+				this.position.x = currentWaypoint.x;
+				this.position.y = currentWaypoint.y;
+			} else {
+				// Normal movement
+				this.position.x = newX;
+				this.position.y = newY;
+			}
+		} else if (this.retries < MAX_RETRIES) {
+			// Position is impassable (water, etc.)
+			console.log("Path blocked by impassable terrain. Finding new path...");
+			// Find a path to the next waypoint and insert it into the path
+			const nextWaypoint = this.path[this.currentPathIndex + 1];
+			const newPath = findPath(this.position, nextWaypoint);
+			if (newPath) {
+				this.path.splice(this.currentPathIndex + 1, 0, ...newPath);
+			} else {
+				// This means we can't find a path to the next waypoint
+				// Recalculate entire path
+				const newPath = findPath(this.position, this.targetPosition);
+				if (newPath) {
+					this.path = newPath;
+					this.currentPathIndex = 0;
+				}
+			}
+			this.retries++;
 		} else {
-			// Normal movement
-			this.position.x = newX;
-			this.position.y = newY;
+			// Max retries reached
+			console.log("Max retries reached, giving up");
+			this.isMoving = false;
+			this.targetPosition = null;
+			this.path = [];
+			this.currentPathIndex = 0;
+			this.retries = 0;
+			this.dispatchEvent({
+				...gameEvent,
+				type: "failed",
+				targetPosition: this.targetPosition,
+			});
+			return true;
 		}
-
-		// // Check if new position is passable
-		// if (isPassable({ x: newX, y: newY }) && speedModifier > 0) {
-		// 	this.position.x = newX;
-		// 	this.position.y = newY;
-		// } else if (this.retries < MAX_RETRIES) {
-		// 	// Position is impassable (water, etc.)
-		// 	console.log("Path blocked by impassable terrain");
-		// 	// Find a path to the next waypoint and insert it into the path
-		// 	const nextWaypoint = this.path[this.currentPathIndex + 1];
-		// 	const newPath = findPath(this.position, nextWaypoint);
-		// 	if (newPath) {
-		// 		this.path.splice(this.currentPathIndex + 1, 0, ...newPath);
-		// 	}
-		// 	this.retries++;
-		// } else {
-		// 	// Max retries reached
-		// 	console.log("Max retries reached, giving up");
-		// 	this.isMoving = false;
-		// 	this.targetPosition = null;
-		// 	this.path = [];
-		// 	this.currentPathIndex = 0;
-		// 	this.retries = 0;
-		// 	this.dispatchEvent({
-		// 		...gameEvent,
-		// 		type: "failed",
-		// 		targetPosition: this.targetPosition,
-		// 	});
-		// 	return true;
-		// }
 
 		return false; // Still moving
 	}

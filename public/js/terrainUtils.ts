@@ -113,7 +113,7 @@ export function calculateSlope(pointA: Vector2, pointB: Vector2): number {
 			)}`
 		);
 	}
-
+	console.log(slope, heightA, heightB);
 	return slope;
 }
 
